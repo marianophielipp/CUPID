@@ -87,12 +87,13 @@ class PushTSimulator:
             'goal_zone': self.goal_zone_center.copy()
         }
     
-    def step(self, action: np.ndarray) -> Dict[str, float]:
+    def step(self, action: np.ndarray, dt: float = 1/50) -> Dict[str, float]:
         """
         Simulate one step with EXACT LeRobot PushT dynamics.
         
         Args:
             action: 2D action [x, y] representing pusher TARGET position (not force)
+            dt: Time step
             
         Returns:
             Dictionary with next_obs, reward, done, success
@@ -117,7 +118,8 @@ class PushTSimulator:
         
         if pusher_distance > 0:
             pusher_direction = pusher_direction / pusher_distance
-            pusher_movement = min(pusher_distance, self.max_pusher_speed)
+            # Scale max speed by dt
+            pusher_movement = min(pusher_distance, self.max_pusher_speed * dt)
             self.pusher_position = self.pusher_position + pusher_direction * pusher_movement
         
         # STEP 2: Check pusher-object collision
@@ -140,8 +142,8 @@ class PushTSimulator:
                 self.object_velocity += push_direction * push_magnitude
         
         # STEP 4: Apply object physics
-        # Update object position with velocity
-        self.object_position += self.object_velocity
+        # Update object position with velocity (scaled by dt)
+        self.object_position += self.object_velocity * dt
         
         # Apply friction
         self.object_velocity *= self.friction
@@ -610,7 +612,7 @@ class TaskEvaluator:
             
             # Convert to numpy and take step
             action = predicted_action.cpu().numpy().flatten()
-            step_result = self.simulator.step(action)
+            step_result = self.simulator.step(action, dt=1/max_steps)
             
             # Update state
             state['observation'] = step_result['next_observation']
@@ -630,6 +632,11 @@ class TaskEvaluator:
             current_pos = self.simulator.object_position
             goal_pos = self.simulator.goal_zone_center
             final_distance = np.linalg.norm(current_pos - goal_pos)
+        
+        # Debug logging for distance calculation
+        logger.debug(f"Episode finished: success={success}, steps={steps}, final_distance={final_distance:.2f}")
+        logger.debug(f"Final object position: {self.simulator.object_position}")
+        logger.debug(f"Goal position: {self.simulator.goal_zone_center}")
         
         return {
             'success': success,
@@ -807,7 +814,7 @@ class TaskEvaluator:
                     action = policy.sample_action(obs_tensor).cpu().numpy()[0]
                 
                 # Take step
-                step_result = simulator.step(action)
+                step_result = simulator.step(action, dt=1/20)
                 obs = step_result['next_observation']
                 reward = step_result['reward']
                 success = step_result['success']

@@ -16,7 +16,7 @@ from .config import Config
 from .policy import PolicyManager
 from .trainer import PolicyTrainer  
 from .influence import InfluenceComputer
-from .data import DatasetManager
+from .data import load_trajectories
 from .evaluation import TaskEvaluator
 
 logger = logging.getLogger(__name__)
@@ -33,27 +33,30 @@ class CUPID:
     which shows that training with 25-33% of curated data can achieve SOTA performance.
     """
     
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, render_mode: Optional[str] = None):
         """
         Initialize CUPID with configuration.
         
         Args:
             config: CUPID configuration object containing all settings
+            render_mode: Optional render mode for the TaskEvaluator (e.g., 'human').
         """
         self.config = config
+        self.device = torch.device(config.device)
+        logger.info(f"🚀 Initializing CUPID on device: {self.device}")
         
         # Initialize components
-        self.dataset_manager = DatasetManager(config)
-        self.policy_manager = PolicyManager(config)
-        self.trainer = PolicyTrainer(config)
+        self.dataset = load_trajectories(
+            dataset_name=config.dataset_name,
+            max_episodes=config.max_episodes
+        )
+        self.task_evaluator = TaskEvaluator(config, render_mode=render_mode)
         self.influence_computer = InfluenceComputer(config)
-        self.task_evaluator = TaskEvaluator(config)
+        self.policy_trainer = PolicyTrainer(config)
+        self.policy_manager = PolicyManager(config)
         
-        # Load dataset and group into trajectories
-        logger.info(f"Loading and processing dataset: {config.dataset_name}")
-        self.dataset = self.dataset_manager.load_dataset()
-        self.trajectories = self.dataset_manager.load_trajectories(self.dataset)
-        logger.info(f"Dataset loaded with {len(self.dataset)} steps across {len(self.trajectories)} trajectories.")
+        # Ensure checkpoint directory exists
+        Path(self.config.checkpoint_dir).mkdir(parents=True, exist_ok=True)
     
     def train_baseline(self) -> Union[torch.nn.Module, Tuple[torch.nn.Module, List[float]]]:
         """
@@ -72,11 +75,16 @@ class CUPID:
             logger.info(f"Loading existing baseline from {baseline_path}")
             return self.policy_manager.load_policy(baseline_path)
         
-        # Train new baseline. The trainer still expects a flat list of steps.
-        logger.info(f"Training new baseline policy with {len(self.dataset)} total steps.")
+        # Train new baseline. The trainer expects a flat list of steps.
+        # Flatten trajectories into individual steps
+        flat_dataset = []
+        for trajectory in self.dataset:
+            flat_dataset.extend(trajectory)
         
-        trained_policy, loss_history = self.trainer.train_policy(
-            dataset=self.dataset, # Pass the flat dataset to the trainer
+        logger.info(f"Training new baseline policy with {len(flat_dataset)} total steps from {len(self.dataset)} trajectories.")
+        
+        trained_policy, loss_history = self.policy_trainer.train_policy(
+            dataset=flat_dataset, # Pass the flattened dataset to the trainer
             policy_manager=self.policy_manager
         )
         
@@ -107,14 +115,16 @@ class CUPID:
         num_rollouts = self.config.influence.num_samples
         max_steps = 50  # Reasonable default for PushT rollouts
         
+        # Sample from trajectories (episodes), not individual steps
         if len(self.dataset) > num_rollouts:
             eval_indices = np.random.choice(len(self.dataset), num_rollouts, replace=False)
         else:
             eval_indices = np.arange(len(self.dataset))
 
         for idx in tqdm(eval_indices, desc="Collecting rollouts"):
-            demo = self.dataset[int(idx)]
-            initial_state = np.array(demo['observation.state'])
+            trajectory = self.dataset[int(idx)]
+            # Use the first step of the trajectory as initial state
+            initial_state = np.array(trajectory[0]['observation.state'])
             
             # Run policy rollout using task evaluator
             result = self.task_evaluator._run_episode(
@@ -129,7 +139,7 @@ class CUPID:
         # Compute trajectory-based influence scores
         influence_scores = self.influence_computer.compute_influence_scores(
             policy=policy,
-            train_trajectories=self.trajectories,
+            train_trajectories=self.dataset,
             eval_rollouts=rollouts
         )
         
@@ -147,7 +157,7 @@ class CUPID:
             List of selected trajectory indices
         """
         selected_indices, selected_scores = self.influence_computer.select_demonstrations(
-            influence_scores, len(self.trajectories)
+            influence_scores, len(self.dataset)
         )
         
         return selected_indices.tolist()
@@ -165,18 +175,18 @@ class CUPID:
         # Create a new flat dataset containing only the steps from selected trajectories
         curated_dataset = []
         for idx in selected_indices:
-            curated_dataset.extend(self.trajectories[idx])
+            curated_dataset.extend(self.dataset[idx])
             
         logger.info(f"Training curated policy with {len(selected_indices)} trajectories ({len(curated_dataset)} steps)...")
         
         # Train policy with the curated subset of steps
-        trained_policy, loss_history = self.trainer.train_policy(
+        trained_policy, loss_history = self.policy_trainer.train_policy(
             dataset=curated_dataset,
             policy_manager=self.policy_manager
         )
         
         # Save curated policy
-        selection_ratio = len(selected_indices) / len(self.trajectories)
+        selection_ratio = len(selected_indices) / len(self.dataset)
         checkpoint_path = Path(self.config.checkpoint_dir) / f"curated_policy_{selection_ratio:.0%}.pth"
         checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
         self.policy_manager.save_policy(trained_policy, checkpoint_path)
@@ -243,9 +253,14 @@ class CUPID:
         """
         if num_episodes is None:
             num_episodes = self.config.evaluation.num_episodes
+        
+        # Flatten trajectories for evaluation (evaluator expects individual steps)
+        flat_dataset = []
+        for trajectory in self.dataset:
+            flat_dataset.extend(trajectory)
             
         return self.task_evaluator.compare_policies(
-            baseline_policy, curated_policy, self.dataset, num_episodes
+            baseline_policy, curated_policy, flat_dataset, num_episodes
         )
     
     def evaluate_policy(self, policy: torch.nn.Module, 
@@ -262,7 +277,7 @@ class CUPID:
         """
         logger.info(f"Evaluating policy on {num_samples} samples...")
         
-        metrics = self.trainer.evaluate_policy(policy, self.dataset, num_samples)
+        metrics = self.policy_trainer.evaluate_policy(policy, self.dataset, num_samples)
         
         logger.info(f"Evaluation completed: {metrics}")
         return metrics

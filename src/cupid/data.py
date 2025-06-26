@@ -16,6 +16,55 @@ from .config import Config
 logger = logging.getLogger(__name__)
 
 
+def load_trajectories(dataset_name: str, max_episodes: Optional[int] = None) -> List[List[Dict[str, Any]]]:
+    """
+    Load a dataset from HuggingFace and group it into trajectories.
+
+    Args:
+        dataset_name: The name of the dataset on HuggingFace Hub.
+        max_episodes: The maximum number of episodes to load. If None, all are loaded.
+
+    Returns:
+        A list of trajectories, where each trajectory is a list of steps.
+    """
+    logger.info(f"Loading dataset: {dataset_name}")
+    dataset = load_dataset(dataset_name, split="train")
+
+    if max_episodes is not None and max_episodes > 0:
+        # This is an approximation. We find the step index that corresponds to the
+        # end of the `max_episodes-1`-th episode.
+        if 'episode_index' in dataset.features:
+            episode_indices = np.array(dataset['episode_index'])
+            if max_episodes < np.max(episode_indices):
+                cutoff_index = np.where(episode_indices == max_episodes)[0][0]
+                dataset = dataset.select(range(cutoff_index))
+
+    logger.info(f"Loaded {len(dataset)} total steps.")
+
+    if 'episode_index' not in dataset.features:
+        logger.warning("'episode_index' not found. Treating each step as a separate trajectory.")
+        return [[sample] for sample in dataset]
+
+    logger.info("Grouping dataset into trajectories...")
+    
+    trajectories = []
+    current_trajectory = []
+    
+    # Use numpy for efficient grouping
+    episode_indices = np.array(dataset['episode_index'])
+    # Find the indices where the episode changes
+    split_indices = np.where(np.diff(episode_indices) != 0)[0] + 1
+    
+    # Split the dataset into trajectories based on the indices
+    episode_datasets = np.split(dataset, split_indices)
+    
+    for episode_data in tqdm(episode_datasets, desc="Grouping trajectories"):
+        trajectories.append(list(episode_data))
+
+    logger.info(f"Grouped data into {len(trajectories)} trajectories.")
+    return trajectories
+
+
 class DatasetManager:
     """
     Manages dataset loading and manipulation for CUPID.
@@ -64,47 +113,6 @@ class DatasetManager:
                 logger.info(f"Action dimension: {action_dim}")
         
         return dataset
-    
-    def load_trajectories(self, dataset: Optional[Dataset] = None) -> List[List[Dict[str, Any]]]:
-        """
-        Group the dataset into trajectories based on 'episode_index'.
-
-        Args:
-            dataset: The dataset to process. If None, uses the one from config.
-
-        Returns:
-            A list of trajectories, where each trajectory is a list of steps.
-        """
-        if dataset is None:
-            dataset = self.load_dataset()
-
-        if 'episode_index' not in dataset.features:
-            logger.warning("'episode_index' not found. Treating each step as a separate trajectory.")
-            return [[sample] for sample in dataset]
-
-        logger.info("Grouping dataset into trajectories...")
-        
-        trajectories = []
-        current_trajectory = []
-        last_episode_index = -1
-
-        # This assumes the dataset is sorted by episode_index, which is typical.
-        for i, item in enumerate(tqdm(dataset, desc="Grouping trajectories")):
-            episode_index = item.get('episode_index')
-
-            if i > 0 and episode_index != last_episode_index:
-                if current_trajectory:
-                    trajectories.append(current_trajectory)
-                current_trajectory = []
-            
-            current_trajectory.append(item)
-            last_episode_index = episode_index
-
-        if current_trajectory:
-            trajectories.append(current_trajectory)
-
-        logger.info(f"Grouped data into {len(trajectories)} trajectories.")
-        return trajectories
     
     def create_subset(self, dataset: Dataset, indices: List[int]) -> Dataset:
         """

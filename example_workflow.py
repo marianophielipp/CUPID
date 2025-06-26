@@ -133,18 +133,9 @@ def main(render=False, max_episodes=None, config_name="quick_demo"):
         logger.info(f"   Device: {config.device}")
         logger.info(f"   Max episodes: {config.max_episodes or 'all available'}")
         
-        # Initialize CUPID
-        cupid = CUPID(config)
-        
-        # Enable rendering if requested
-        if render:
-            try:
-                from cupid.evaluation import TaskEvaluator
-                cupid.task_evaluator = TaskEvaluator(config, render_mode='human')
-                logger.info("✅ Rendering enabled")
-            except Exception as e:
-                logger.warning(f"⚠️ Failed to enable rendering: {e}")
-                render = False
+        # Initialize CUPID, passing render_mode if enabled
+        render_mode = 'human' if render else None
+        cupid = CUPID(config, render_mode=render_mode)
         
         logger.info(f"📊 Dataset: {config.dataset_name}")
         logger.info(f"🎯 Total demonstrations available: {len(cupid.dataset)}")
@@ -245,14 +236,19 @@ def main(render=False, max_episodes=None, config_name="quick_demo"):
             rollout_count = 2 if config_name == "smoke_test" else 5
             logger.info(f"      Showing {rollout_count} rollouts of each policy...")
             
+            # Flatten dataset for demonstrations (evaluator expects individual steps)
+            flat_dataset = []
+            for trajectory in cupid.dataset:
+                flat_dataset.extend(trajectory)
+            
             # Demonstrate baseline policy
             cupid.task_evaluator.demonstrate_policy_rollouts(
-                baseline_policy, "Baseline Policy", cupid.dataset, num_rollouts=rollout_count
+                baseline_policy, "Baseline Policy", flat_dataset, num_rollouts=rollout_count
             )
             
             # Demonstrate curated policy
             cupid.task_evaluator.demonstrate_policy_rollouts(
-                curated_policy, "Curated Policy", cupid.dataset, num_rollouts=rollout_count
+                curated_policy, "Curated Policy", flat_dataset, num_rollouts=rollout_count
             )
         
     except Exception as e:

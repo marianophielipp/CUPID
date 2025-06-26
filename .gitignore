@@ -1,0 +1,78 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyTorch
+*.pth
+*.pt
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Outputs and logs
+outputs/
+logs/
+*.log
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Matplotlib
+.matplotlibrc
+
+# Temporary files
+.tmp/
+temp/
+*.tmp
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Generated visualizations (keep the main report)
+test_viz.png
+*_viz.png
+
+# Model checkpoints (comment out if you want to track them)
+# checkpoints/
+# *.pth
+# *.pt
+
+# UV lock file (can be regenerated)
+# uv.lock 

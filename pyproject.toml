@@ -1,0 +1,75 @@
+[project]
+name = "cupid"
+version = "0.1.0"
+description = "CUPID: Curating Performance-Influencing Demonstrations using Influence Functions"
+authors = [
+    { name = "CUPID Research Team", email = "research@cupid.ai" }
+]
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+keywords = ["robotics", "imitation-learning", "influence-functions", "data-curation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    # Core ML dependencies
+    "torch>=2.0.0",
+    "numpy>=1.21.0",
+    # HuggingFace ecosystem (for LeRobot datasets and models)
+    "datasets>=2.0.0",
+    "huggingface-hub>=0.16.0",
+    # Visualization and analysis
+    "matplotlib>=3.5.0",
+    "seaborn>=0.11.0",
+    "pygame>=2.5.0",  # For PushT rendering
+    # Utilities
+    "tqdm>=4.64.0",
+    "typing-extensions>=4.0.0",
+    # Optional: LeRobot (may not be available on all systems)
+    "lerobot>=0.1.0;python_version>='3.10'",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "flake8>=6.0.0",
+    "mypy>=1.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/username/cupid"
+Repository = "https://github.com/username/cupid"
+Issues = "https://github.com/username/cupid/issues"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 100
+target-version = ['py310']
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+
+[tool.uv.sources]
+diffusion-policy = { git = "https://github.com/real-stanford/diffusion_policy.git" }

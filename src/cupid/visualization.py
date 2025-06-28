@@ -165,9 +165,19 @@ class CUPIDVisualizer:
         """Plot performance comparison between baseline and curated policies."""
         # Use task-relevant metrics instead of loss metrics
         if 'success_rate' in baseline_metrics:
-            # Task-based metrics (better visualization)
-            metrics = ['success_rate', 'avg_reward', 'action_consistency', 'avg_final_distance']
-            metric_labels = ['Success Rate', 'Avg Reward', 'Action Consistency', 'Final Distance']
+            # Task-based metrics (prioritize working metrics)
+            baseline_reward = baseline_metrics.get('avg_reward', 0)
+            curated_reward = curated_metrics.get('avg_reward', 0)
+            
+            # If we have meaningful rewards, emphasize them
+            if baseline_reward > 0 or curated_reward > 0:
+                metrics = ['avg_reward', 'success_rate']
+                metric_labels = ['Avg Reward\n(Primary)', 'Success Rate']
+            else:
+                # Fallback to standard metrics
+                metrics = ['success_rate', 'avg_reward', 'avg_final_distance']
+                metric_labels = ['Success Rate', 'Avg Reward', 'Final Distance']
+            
             baseline_values = [baseline_metrics.get(m, 0) for m in metrics]
             curated_values = [curated_metrics.get(m, 0) for m in metrics]
             
@@ -260,13 +270,23 @@ class CUPIDVisualizer:
                 return f"{val:{spec}}"
             return str(val)
             
-        # Table data
+        # Calculate reward improvement for better summary
+        baseline_reward = baseline_metrics.get('avg_reward', 0)
+        curated_reward = curated_metrics.get('avg_reward', 0)
+        
+        if baseline_reward != 0:
+            reward_improvement = ((curated_reward - baseline_reward) / abs(baseline_reward)) * 100
+        else:
+            reward_improvement = curated_reward * 100 if curated_reward != 0 else 0
+        
+        # Table data with more relevant metrics
         table_data = [
             ['Configuration', f"{config.get('dataset_name', 'Unknown')[:20]}..."],
             ['Data Selection', f"{selected_demos}/{total_demos} ({selection_ratio:.1%})"],
-            ['Baseline Success', format_val(baseline_success, ".1%")],
-            ['Curated Success', format_val(curated_success, ".1%")],
-            ['Influence Range', f"{np.min(influence_scores):.3f} to {np.max(influence_scores):.3f}"]
+            ['Baseline Reward', format_val(baseline_reward, ".3f")],
+            ['Curated Reward', format_val(curated_reward, ".3f")],
+            ['Reward Improvement', f"{reward_improvement:+.1f}%"],
+            ['Success Rate', f"{format_val(baseline_success, '.1%')} → {format_val(curated_success, '.1%')}"]
         ]
         
         # Create table

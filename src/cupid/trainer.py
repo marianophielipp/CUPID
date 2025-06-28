@@ -7,30 +7,62 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Optional, Dict, Union
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 import logging
+from PIL import Image
 
 from .policy import DiffusionPolicy, PolicyManager
 
 logger = logging.getLogger(__name__)
 
 
+def custom_collate_fn(batch):
+    """
+    Custom collate function for trajectory batches with PIL images.
+    
+    OPTIMIZED: Using list comprehensions and vectorized operations.
+    """
+    # Vectorized extraction using list comprehensions
+    states = [sample['state'] for sample in batch]
+    actions = [sample['action'] for sample in batch]
+    
+    # Stack tensors efficiently
+    result = {
+        'state': torch.stack([torch.from_numpy(s) for s in states]),
+        'action': torch.stack([torch.from_numpy(a) for a in actions])
+    }
+    
+    # Handle images efficiently (only extract if any sample has images)
+    if batch and 'image' in batch[0]:
+        result['image'] = [sample['image'] for sample in batch]
+    
+    return result
+
+
 class TrajectoryDataset(Dataset):
-    """PyTorch Dataset for trajectory data."""
-    def __init__(self, data: List[Dict]):
+    """PyTorch Dataset for trajectory data with image and state observations."""
+    def __init__(self, data: List[Dict], use_images: bool = True):
         self.data = data
+        self.use_images = use_images
 
     def __len__(self) -> int:
         return len(self.data)
 
-    def __getitem__(self, idx: int) -> Dict[str, np.ndarray]:
+    def __getitem__(self, idx: int) -> Dict[str, Union[np.ndarray, Image.Image]]:
         sample = self.data[idx]
-        return {
-            'obs': np.array(sample['observation.state'], dtype=np.float32),
+        
+        result = {
+            'state': np.array(sample['observation.state'], dtype=np.float32),
             'action': np.array(sample['action'], dtype=np.float32)
         }
+        
+        # Include image if available and requested
+        if self.use_images and 'observation.image' in sample:
+            result['image'] = sample['observation.image']  # Keep as PIL Image
+            
+        return result
 
 
 class PolicyTrainer:
@@ -45,6 +77,28 @@ class PolicyTrainer:
         """
         self.config = config
         self.device = config.device
+    
+    def prepare_batch_observations(self, batch: Dict) -> Union[torch.Tensor, Dict[str, torch.Tensor]]:
+        """
+        Prepare observations from batch for the policy.
+        
+        Args:
+            batch: Batch dictionary with 'state' and optionally 'image'
+            
+        Returns:
+            Either state tensor or dict with 'state' and 'image' tensors
+        """
+        state_tensor = batch['state'].to(self.device)
+        
+        if 'image' in batch:
+            # Images are handled by the policy's ImageEncoder
+            images = batch['image']  # List of PIL images
+            return {
+                'state': state_tensor,
+                'image': images
+            }
+        else:
+            return state_tensor
     
     def train_policy(
         self,
@@ -65,13 +119,18 @@ class PolicyTrainer:
         
         logger.info(f"Starting training: {training_config.num_steps} steps, LR={training_config.learning_rate}")
         
-        train_dataset = TrajectoryDataset(dataset)
+        # Check if dataset has images
+        has_images = len(dataset) > 0 and 'observation.image' in dataset[0]
+        logger.info(f"Dataset has images: {has_images}")
+        
+        train_dataset = TrajectoryDataset(dataset, use_images=has_images)
         train_loader = DataLoader(
             train_dataset,
             batch_size=training_config.batch_size,
             shuffle=True,
             num_workers=4,  # Use multiple workers for data loading
-            pin_memory=True
+            pin_memory=True,
+            collate_fn=custom_collate_fn  # Use custom collate function for PIL images
         )
         
         # Calculate training parameters
@@ -104,15 +163,15 @@ class PolicyTrainer:
                     if step >= training_config.num_steps:
                         break
                     
-                    # Data is already batched and on its way to the device
-                    obs_tensor = batch['obs'].to(self.device)
+                    # Prepare observations and actions
+                    obs = self.prepare_batch_observations(batch)
                     action_tensor = batch['action'].to(self.device)
                     
                     # Forward pass with diffusion loss
                     optimizer.zero_grad()
                     
                     # Use the policy's built-in diffusion loss
-                    loss = policy.get_loss(obs_tensor, action_tensor)
+                    loss = policy.get_loss(obs, action_tensor)
                     
                     # Backward pass
                     loss.backward()
@@ -179,13 +238,17 @@ class PolicyTrainer:
         losses = []
         action_accuracies = []
         
+        # Check if dataset has images
+        has_images = len(dataset) > 0 and 'observation.image' in dataset[0]
+        
         # Create a loader for evaluation
-        eval_dataset = TrajectoryDataset(dataset)
+        eval_dataset = TrajectoryDataset(dataset, use_images=has_images)
         eval_loader = DataLoader(
             eval_dataset,
             batch_size=self.config.training.batch_size,
             shuffle=True,
-            num_workers=2
+            num_workers=2,
+            collate_fn=custom_collate_fn  # Use custom collate function for PIL images
         )
         
         num_evaluated = 0
@@ -195,31 +258,30 @@ class PolicyTrainer:
                     break
                 
                 # Prepare data
-                obs = batch['obs'].to(self.device)
+                obs = self.prepare_batch_observations(batch)
                 action_gt = batch['action'].to(self.device)
                 
-                # Compute diffusion loss
+                # Compute loss
                 loss = policy.get_loss(obs, action_gt)
-                losses.extend([loss.item()] * obs.size(0))
+                losses.append(loss.item())
                 
-                # Sample action and compare with ground truth
+                # Sample actions and compute accuracy
                 action_pred = policy.sample_action(obs)
-                action_error = torch.mean((action_pred - action_gt) ** 2, dim=1)
-                action_accuracy = 1.0 / (1.0 + action_error)
-                action_accuracies.extend(action_accuracy.cpu().numpy())
                 
-                num_evaluated += obs.size(0)
+                # Compute action accuracy (within tolerance)
+                action_diff = torch.abs(action_pred - action_gt)
+                accuracy = (action_diff < 0.1).float().mean()  # 10% tolerance
+                action_accuracies.append(accuracy.item())
+                
+                num_evaluated += obs['state'].shape[0] if isinstance(obs, dict) else obs.shape[0]
         
-        metrics = {
-            'avg_loss': np.mean(losses[:num_samples]),
-            'std_loss': np.std(losses[:num_samples]),
-            'min_loss': np.min(losses[:num_samples]),
-            'max_loss': np.max(losses[:num_samples]),
-            'action_accuracy': np.mean(action_accuracies[:num_samples]),
-            'action_accuracy_std': np.std(action_accuracies[:num_samples])
+        policy.train()  # Return to training mode
+        
+        results = {
+            'eval_loss': np.mean(losses),
+            'action_accuracy': np.mean(action_accuracies),
+            'num_evaluated': num_evaluated
         }
         
-        logger.info(f"Evaluation complete. Avg loss: {metrics['avg_loss']:.6f}, Action accuracy: {metrics['action_accuracy']:.3f}")
-        
-        policy.train()
-        return metrics 
+        logger.info(f"Evaluation results: {results}")
+        return results 

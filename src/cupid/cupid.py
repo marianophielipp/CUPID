@@ -68,82 +68,107 @@ class CUPID:
         """
         logger.info("Training baseline policy...")
         
-        # Check if baseline already exists
-        baseline_path = Path(self.config.checkpoint_dir) / "baseline_policy.pth"
-        
-        if baseline_path.exists() and not self.config.force_retrain:
-            logger.info(f"Loading existing baseline from {baseline_path}")
-            return self.policy_manager.load_policy(baseline_path)
-        
-        # Train new baseline. The trainer expects a flat list of steps.
-        # Flatten trajectories into individual steps
+        # Create descriptive checkpoint name with dataset info
+        num_trajectories = len(self.dataset)
         flat_dataset = []
         for trajectory in self.dataset:
             flat_dataset.extend(trajectory)
+        num_steps = len(flat_dataset)
         
-        logger.info(f"Training new baseline policy with {len(flat_dataset)} total steps from {len(self.dataset)} trajectories.")
+        # Generate checkpoint name with dataset info
+        baseline_name = f"baseline_policy_T{num_trajectories}_S{num_steps}.pth"
+        baseline_path = Path(self.config.checkpoint_dir) / baseline_name
+        
+        # Check if exact baseline already exists
+        if baseline_path.exists() and not self.config.force_retrain:
+            logger.info(f"✅ Loading existing baseline from {baseline_path}")
+            logger.info(f"   📊 Dataset: {num_trajectories} trajectories, {num_steps} steps")
+            return self.policy_manager.load_policy(baseline_path)
+        
+        # Check for any baseline with different dataset size
+        existing_baselines = list(Path(self.config.checkpoint_dir).glob("baseline_policy_T*_S*.pth"))
+        if existing_baselines and not self.config.force_retrain:
+            logger.warning(f"⚠️  Found existing baseline(s) with different dataset sizes:")
+            for existing in existing_baselines:
+                logger.warning(f"   - {existing.name}")
+            logger.warning(f"   Current dataset: {num_trajectories} trajectories, {num_steps} steps")
+            logger.warning(f"   Use --force-retrain to create new baseline for current dataset")
+        
+        logger.info(f"🚀 Training new baseline policy with {num_steps} total steps from {num_trajectories} trajectories.")
         
         trained_policy, loss_history = self.policy_trainer.train_policy(
             dataset=flat_dataset, # Pass the flattened dataset to the trainer
             policy_manager=self.policy_manager
         )
         
-        # Save baseline
+        # Save baseline with metadata
         baseline_path.parent.mkdir(parents=True, exist_ok=True)
-        self.policy_manager.save_policy(trained_policy, baseline_path)
+        self.policy_manager.save_policy_with_metadata(
+            policy=trained_policy, 
+            filepath=baseline_path,
+            metadata={
+                'policy_type': 'baseline',
+                'num_trajectories': num_trajectories,
+                'num_steps': num_steps,
+                'dataset_name': self.config.dataset_name,
+                'training_steps': self.config.training.num_steps,
+                'selection_ratio': 1.0,  # Baseline uses all data
+                'config_name': getattr(self.config, 'config_name', 'unknown')
+            }
+        )
         
-        logger.info("Baseline policy training completed")
+        logger.info(f"✅ Baseline policy training completed and saved to {baseline_name}")
         return trained_policy, loss_history
     
     def compute_influence_scores(self, policy: torch.nn.Module) -> np.ndarray:
         """
-        Compute trajectory-based influence scores using the proper CUPID algorithm.
+        Compute influence scores for all demonstrations.
         
         Args:
-            policy: Trained policy to use for influence computation
+            policy: Trained policy to compute influence against
             
         Returns:
-            Array of influence scores for each trajectory
+            Array of influence scores
         """
-        logger.info("Computing trajectory-based influence scores...")
+        # Step 1: Collect rollouts from a subset of data
+        logger.info(f"Collecting evaluation rollouts...")
         
-        # Collect policy rollouts for performance influence computation
-        logger.info("Collecting policy rollouts for performance gradient...")
-        rollouts = []
+        # IMPROVED: Use proportional sampling with smart selection
+        num_rollouts = self.config.get_eval_sample_count(len(self.dataset))
         
-        # Use configured number of samples for rollouts
-        num_rollouts = self.config.influence.num_samples
-        max_steps = 50  # Reasonable default for PushT rollouts
-        
-        # Sample from trajectories (episodes), not individual steps
-        if len(self.dataset) > num_rollouts:
-            eval_indices = np.random.choice(len(self.dataset), num_rollouts, replace=False)
+        if num_rollouts >= len(self.dataset):
+            # Use all trajectories if we need more than available
+            logger.info(f"Using all {len(self.dataset)} trajectories for evaluation rollouts")
+            eval_indices = list(range(len(self.dataset)))
         else:
-            eval_indices = np.arange(len(self.dataset))
-
-        for idx in tqdm(eval_indices, desc="Collecting rollouts"):
-            trajectory = self.dataset[int(idx)]
-            # Use the first step of the trajectory as initial state
+            # Randomly sample without replacement to avoid duplicates
+            logger.info(f"Using {num_rollouts}/{len(self.dataset)} trajectories ({num_rollouts/len(self.dataset)*100:.1f}%) for evaluation rollouts")
+            eval_indices = np.random.choice(len(self.dataset), num_rollouts, replace=False)
+        
+        # OPTIMIZED: Pre-allocate rollouts list for better memory performance
+        rollouts = [None] * len(eval_indices)
+        
+        for i, idx in enumerate(tqdm(eval_indices, desc="Collecting rollouts")):
+            trajectory = self.dataset[idx]
+            
+            # Extract initial state from trajectory
             initial_state = np.array(trajectory[0]['observation.state'])
             
-            # Run policy rollout using task evaluator
+            # Run evaluation rollout
             result = self.task_evaluator._run_episode(
-                policy, 
-                initial_state,
-                max_steps=max_steps
+                policy, initial_state, max_steps=300
             )
-            rollouts.append(result)
+            rollouts[i] = result
         
-        logger.info(f"Collected {len(rollouts)} rollouts.")
+        logger.info(f"Collected {len(rollouts)} rollouts")
         
-        # Compute trajectory-based influence scores
+        # Step 2: Compute influence scores  
         influence_scores = self.influence_computer.compute_influence_scores(
             policy=policy,
             train_trajectories=self.dataset,
             eval_rollouts=rollouts
         )
         
-        logger.info(f"Computed influence scores for {len(influence_scores)} trajectories.")
         return influence_scores
     
     def select_demonstrations(self, influence_scores: np.ndarray) -> List[int]:
@@ -176,8 +201,15 @@ class CUPID:
         curated_dataset = []
         for idx in selected_indices:
             curated_dataset.extend(self.dataset[idx])
-            
-        logger.info(f"Training curated policy with {len(selected_indices)} trajectories ({len(curated_dataset)} steps)...")
+        
+        # Calculate dataset statistics
+        total_trajectories = len(self.dataset)
+        selected_trajectories = len(selected_indices)
+        curated_steps = len(curated_dataset)
+        selection_ratio = selected_trajectories / total_trajectories
+        
+        logger.info(f"🚀 Training curated policy with {selected_trajectories} trajectories ({curated_steps} steps)...")
+        logger.info(f"   📊 Selection: {selected_trajectories}/{total_trajectories} trajectories ({selection_ratio:.1%})")
         
         # Train policy with the curated subset of steps
         trained_policy, loss_history = self.policy_trainer.train_policy(
@@ -185,13 +217,29 @@ class CUPID:
             policy_manager=self.policy_manager
         )
         
-        # Save curated policy
-        selection_ratio = len(selected_indices) / len(self.dataset)
-        checkpoint_path = Path(self.config.checkpoint_dir) / f"curated_policy_{selection_ratio:.0%}.pth"
+        # Generate descriptive checkpoint name
+        curated_name = f"curated_policy_T{selected_trajectories}of{total_trajectories}_S{curated_steps}_{selection_ratio:.0%}.pth"
+        checkpoint_path = Path(self.config.checkpoint_dir) / curated_name
         checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-        self.policy_manager.save_policy(trained_policy, checkpoint_path)
         
-        logger.info("Curated policy training completed")
+        # Save curated policy with metadata
+        self.policy_manager.save_policy_with_metadata(
+            policy=trained_policy,
+            filepath=checkpoint_path,
+            metadata={
+                'policy_type': 'curated',
+                'num_trajectories': selected_trajectories,
+                'num_steps': curated_steps,
+                'total_available_trajectories': total_trajectories,
+                'selection_ratio': selection_ratio,
+                'selected_indices': selected_indices,
+                'dataset_name': self.config.dataset_name,
+                'training_steps': self.config.training.num_steps,
+                'config_name': getattr(self.config, 'config_name', 'unknown')
+            }
+        )
+        
+        logger.info(f"✅ Curated policy training completed and saved to {curated_name}")
         return trained_policy, loss_history
     
     def run_full_pipeline(self) -> torch.nn.Module:

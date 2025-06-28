@@ -25,9 +25,6 @@ from .data import DatasetManager
 from .evaluation import TaskEvaluator
 from .visualization import CUPIDVisualizer, create_cupid_visualization
 
-# Legacy compatibility (will be deprecated)
-SimpleCUPID = CUPID
-
 __all__ = [
     # Core components
     'Config', 'TrainingConfig', 'PolicyConfig', 'InfluenceConfig',
@@ -38,9 +35,6 @@ __all__ = [
     'DatasetManager',
     'TaskEvaluator',
     
-    # Legacy (deprecated)
-    'SimpleCUPID',
-
     # Visualization
     'CUPIDVisualizer', 'create_cupid_visualization'
 ]

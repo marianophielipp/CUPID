@@ -28,12 +28,14 @@ dependencies = [
     # Visualization and analysis
     "matplotlib>=3.5.0",
     "seaborn>=0.11.0",
-    "pygame>=2.5.0",  # For PushT rendering
+    "pygame>=2.5.0", # For PushT rendering
     # Utilities
     "tqdm>=4.64.0",
     "typing-extensions>=4.0.0",
     # Optional: LeRobot (may not be available on all systems)
     "lerobot>=0.1.0;python_version>='3.10'",
+    "gym-pusht>=0.1.5",
+    "imageio[ffmpeg]>=2.37.0",
 ]
 
 [project.optional-dependencies]

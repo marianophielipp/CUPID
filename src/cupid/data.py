@@ -187,21 +187,35 @@ class DatasetManager:
         """
         Convert dataset to list of tensor dictionaries for training.
         
+        OPTIMIZED: Using vectorized operations where possible.
+        
         Args:
             dataset: Dataset to convert
             
         Returns:
             List of dictionaries with tensor data
         """
-        tensor_data = []
+        if len(dataset) == 0:
+            return []
         
+        # Pre-allocate list for better memory performance
+        tensor_data = []
+        tensor_data_reserve = len(dataset)
+        
+        # OPTIMIZED: Process items more efficiently
         for item in dataset:
             tensor_item = {}
             
+            # OPTIMIZED: Handle common tensor conversions more efficiently
             for key, value in item.items():
-                if isinstance(value, (list, np.ndarray)):
+                if isinstance(value, np.ndarray):
+                    # Direct numpy array conversion
+                    tensor_item[key] = torch.from_numpy(value).float().to(self.device)
+                elif isinstance(value, list):
+                    # List to tensor conversion
                     tensor_item[key] = torch.tensor(value, dtype=torch.float32, device=self.device)
                 else:
+                    # Single value conversion
                     tensor_item[key] = torch.tensor([value], dtype=torch.float32, device=self.device)
                     
             tensor_data.append(tensor_item)

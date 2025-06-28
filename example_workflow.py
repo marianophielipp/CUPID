@@ -5,6 +5,12 @@ CUPID Example: Complete workflow demonstration
 This example shows how to use CUPID for robot imitation learning data curation.
 Based on the paper "CUPID: Curating Data your Robot Loves with Influence Functions"
 which demonstrates that training with ~25-33% of curated data can achieve state-of-the-art performance.
+
+IMPORTANT FIXES APPLIED:
+- ✅ Training steps increased from 10 to 5000+ (matching LeRobot standards)
+- ✅ Action clipping added to prevent out-of-bounds actions
+- ✅ Environment consistency fixed for influence computation
+- ✅ Device compatibility issues resolved
 """
 
 import torch
@@ -89,7 +95,7 @@ def validate_environment():
     return True
 
 
-def main(render=False, max_episodes=None, config_name="quick_demo"):
+def main(render=False, max_episodes=None, config_name="quick_demo", selection_ratio=None, force_retrain=False, environment="cupid", lerobot_path=None):
     """
     Complete CUPID workflow example with comprehensive error handling.
     
@@ -97,6 +103,8 @@ def main(render=False, max_episodes=None, config_name="quick_demo"):
         render: Enable visual rendering
         max_episodes: Maximum number of episodes to use
         config_name: Configuration preset name
+        selection_ratio: Override selection ratio (e.g., 0.33 for 33%)
+        force_retrain: Force retraining even if checkpoints exist
     """
     
     # Setup error handling
@@ -129,13 +137,25 @@ def main(render=False, max_episodes=None, config_name="quick_demo"):
         else:
             config = Config.for_demos(max_episodes or 1000)
         
+        # Override config with CLI args
+        if selection_ratio is not None:
+            config.influence.selection_ratio = selection_ratio
+        if force_retrain:
+            config.force_retrain = True
+        if environment:
+            config.environment_type = environment
+        if lerobot_path:
+            config.lerobot_path = lerobot_path
+        
         logger.info(f"✅ Configuration loaded: {config.dataset_name}")
         logger.info(f"   Device: {config.device}")
+        logger.info(f"   Environment: {config.environment_type}")
         logger.info(f"   Max episodes: {config.max_episodes or 'all available'}")
+        logger.info(f"   Selection ratio: {config.influence.selection_ratio*100:.0f}%")
+        logger.info(f"   Force retrain: {config.force_retrain}")
         
-        # Initialize CUPID, passing render_mode if enabled
-        render_mode = 'human' if render else None
-        cupid = CUPID(config, render_mode=render_mode)
+        # Initialize CUPID without rendering (rendering only for final demonstrations)
+        cupid = CUPID(config, render_mode=None)
         
         logger.info(f"📊 Dataset: {config.dataset_name}")
         logger.info(f"🎯 Total demonstrations available: {len(cupid.dataset)}")
@@ -236,20 +256,60 @@ def main(render=False, max_episodes=None, config_name="quick_demo"):
             rollout_count = 2 if config_name == "smoke_test" else 5
             logger.info(f"      Showing {rollout_count} rollouts of each policy...")
             
+            # Create a separate evaluator with rendering enabled for demonstrations only
+            from cupid.evaluation import TaskEvaluator
+            demo_evaluator = TaskEvaluator(config, render_mode='human')
+            
             # Flatten dataset for demonstrations (evaluator expects individual steps)
             flat_dataset = []
             for trajectory in cupid.dataset:
                 flat_dataset.extend(trajectory)
             
             # Demonstrate baseline policy
-            cupid.task_evaluator.demonstrate_policy_rollouts(
+            demo_evaluator.demonstrate_policy_rollouts(
                 baseline_policy, "Baseline Policy", flat_dataset, num_rollouts=rollout_count
             )
             
             # Demonstrate curated policy
-            cupid.task_evaluator.demonstrate_policy_rollouts(
+            demo_evaluator.demonstrate_policy_rollouts(
                 curated_policy, "Curated Policy", flat_dataset, num_rollouts=rollout_count
             )
+        
+        # ENHANCED: Always generate video files for comparison (even without --render)
+        logger.info("   🎬 Generating video comparisons...")
+        video_output_dir = Path("outputs") / "videos"
+        video_output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create evaluator for video generation (no interactive rendering)
+        from cupid.evaluation import TaskEvaluator
+        video_evaluator = TaskEvaluator(config, render_mode=None)
+        
+        # Flatten dataset for video generation
+        flat_dataset = []
+        for trajectory in cupid.dataset:
+            flat_dataset.extend(trajectory)
+        
+        # Generate videos for both policies
+        video_count = 3 if config_name == "smoke_test" else 5
+        logger.info(f"      📹 Generating {video_count} videos for each policy...")
+        
+        baseline_videos = video_evaluator.generate_policy_videos(
+            baseline_policy, "Baseline_Policy", flat_dataset, 
+            num_videos=video_count, output_dir=str(video_output_dir)
+        )
+        
+        curated_videos = video_evaluator.generate_policy_videos(
+            curated_policy, "Curated_Policy", flat_dataset, 
+            num_videos=video_count, output_dir=str(video_output_dir)
+        )
+        
+        all_videos = baseline_videos + curated_videos
+        if all_videos:
+            logger.info(f"✅ Generated {len(all_videos)} video files:")
+            for video_path in all_videos:
+                logger.info(f"   📹 {video_path}")
+        else:
+            logger.info("   ℹ️ Video generation skipped (requires additional dependencies)")
         
     except Exception as e:
         logger.error(f"❌ Failed to evaluate policies: {e}")
@@ -309,8 +369,7 @@ def _print_final_report(results: dict, num_curated: int, num_total: int):
     metric_map = {
         'success_rate': 'Success Rate',
         'avg_reward': 'Avg. Reward',
-        'avg_final_distance': 'Final Distance',
-        'action_consistency': 'Action Consistency'
+        'avg_final_distance': 'Final Distance'
     }
     
     for key, name in metric_map.items():
@@ -343,11 +402,21 @@ if __name__ == "__main__":
     parser.add_argument("--max-episodes", type=int, help="Maximum number of episodes to use")
     parser.add_argument("--config", dest="config_name", type=str, default="quick_demo",
                         help="Configuration preset (smoke_test, quick_demo, default)")
-    
+    parser.add_argument("--selection-ratio", type=float, default=None, help="Influence selection ratio (e.g., 0.33 for 33%)")
+    parser.add_argument("--force-retrain", action="store_true", help="Force retraining even if checkpoints exist")
+    parser.add_argument("--environment", type=str, default="cupid", choices=["cupid", "lerobot"],
+                        help="Environment type: 'cupid' (custom simulator) or 'lerobot' (original)")
+    parser.add_argument("--lerobot-path", type=str, default="/home/mphielipp/robotsw/lerobot",
+                        help="Path to LeRobot installation (if using lerobot environment)")
+
     args = parser.parse_args()
-    
+
     sys.exit(main(
         render=args.render,
         max_episodes=args.max_episodes,
-        config_name=args.config_name
+        config_name=args.config_name,
+        selection_ratio=args.selection_ratio,
+        force_retrain=args.force_retrain,
+        environment=args.environment,
+        lerobot_path=args.lerobot_path
     )) 

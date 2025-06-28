@@ -4,7 +4,7 @@ Configuration management for CUPID.
 This module provides configuration classes for different components of the CUPID system.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, Union
 import torch
 
@@ -13,14 +13,14 @@ import torch
 class TrainingConfig:
     """Training configuration parameters."""
     
-    # Training parameters
-    num_steps: int = 20000  # LeRobot standard: 20K steps
-    batch_size: int = 64    # LeRobot standard: 64
+    # Training parameters - FIXED to match LeRobot standards
+    num_steps: int = 100000  # Reduced from LeRobot's 200K for reasonable training time
+    batch_size: int = 64     # LeRobot standard: 64
     learning_rate: float = 1e-4
     weight_decay: float = 1e-6
     
     # Checkpointing
-    checkpoint_every: int = 5000  # Save every 5K steps (4 checkpoints total)
+    checkpoint_every: int = 20000  # Save every 20K steps (5 checkpoints total)
     max_checkpoints: int = 5
     
     # Early stopping
@@ -50,7 +50,7 @@ class TrainingConfig:
         return cls(
             num_steps=adapted_steps,
             learning_rate=learning_rate,
-            checkpoint_every=max(1000, adapted_steps // 4),  # 4 checkpoints
+            checkpoint_every=max(5000, adapted_steps // 5),  # 5 checkpoints
             **kwargs
         )
 
@@ -73,72 +73,86 @@ class PolicyConfig:
     # Action prediction
     action_horizon: int = 8
     observation_horizon: int = 2
+    
+    # Sampling parameters
+    temperature: float = 100.0  # Temperature for action sampling (higher = more diverse actions)
 
 
 @dataclass
 class InfluenceConfig:
     """Influence function computation configuration."""
     
-    # Sampling parameters
-    num_samples: int = 200  # Number of rollout samples for influence computation
-    damping: float = 1e-3   # Damping factor for Hessian computation
+    # Hessian computation parameters
+    hessian_sample_ratio: float = 0.5   # Proportion of trajectories to use for Hessian (50%)
+    min_hessian_samples: int = 50       # Minimum samples for Hessian (numerical stability)
+    max_hessian_samples: int = 500      # Maximum samples for Hessian (computational efficiency)
+    damping: float = 1e-3               # Damping factor for Hessian computation
+    
+    # Evaluation rollout parameters  
+    eval_sample_ratio: float = 0.3      # Proportion of dataset for evaluation rollouts (30%)
+    min_eval_samples: int = 20          # Minimum evaluation samples
+    max_eval_samples: int = 200         # Maximum evaluation samples
     
     # Selection parameters  
-    selection_ratio: float = 0.33  # Default to 33% based on CUPID paper findings
-    min_selection: int = 10        # Minimum number of demonstrations to select
-    max_selection: int = 1000      # Maximum number of demonstrations to select
+    selection_ratio: float = 0.33       # Default to 33% based on CUPID paper findings
+    min_selection: int = 10             # Minimum number of demonstrations to select
+    max_selection: int = 1000           # Maximum number of demonstrations to select
 
 
 @dataclass
 class EvaluationConfig:
     """Evaluation configuration parameters."""
-    num_episodes: int = 50  # Number of episodes for task-based evaluation
+    num_episodes: int = 200  # Number of episodes for task-based evaluation (increased for better statistics)
 
 
 @dataclass 
 class Config:
-    """Main CUPID configuration."""
+    """Main configuration for CUPID experiments."""
     
-    # Dataset
-    dataset_name: str = "lerobot/pusht"
+    # Configuration identification
+    config_name: str = "unknown"  # Name of the configuration for tracking
+    
+    # Dataset configuration
+    dataset_name: str = "lerobot/pusht_image"
     max_episodes: Optional[int] = None
     
-    # Device
-    device: Union[str, torch.device] = "auto"
+    # Environment configuration
+    environment_type: str = "cupid"  # "cupid" or "lerobot"
+    lerobot_path: Optional[str] = "/home/mphielipp/robotsw/lerobot"  # Path to LeRobot installation
     
-    # Training control
-    force_retrain: bool = False  # Whether to force retraining even if checkpoints exist
+    # Device configuration
+    device: str = "cuda" if torch.cuda.is_available() else "cpu"
     
-    # Component configurations
-    training: TrainingConfig = None
-    policy: PolicyConfig = None
-    influence: InfluenceConfig = None
-    evaluation: EvaluationConfig = None
+    # Training configuration
+    training: TrainingConfig = field(default_factory=TrainingConfig)
     
-    # Paths
+    # Policy configuration
+    policy: PolicyConfig = field(default_factory=PolicyConfig)
+    
+    # Influence computation configuration
+    influence: InfluenceConfig = field(default_factory=InfluenceConfig)
+    
+    # Evaluation configuration
+    evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
+    
+    # Checkpointing
     checkpoint_dir: str = "checkpoints"
-    data_dir: str = "data"
+    force_retrain: bool = False
     
     def __post_init__(self):
-        """Initialize sub-configurations if not provided."""
-        if self.training is None:
-            self.training = TrainingConfig()
-        if self.policy is None:
-            self.policy = PolicyConfig()
-        if self.influence is None:
-            self.influence = InfluenceConfig()
-        if self.evaluation is None:
-            self.evaluation = EvaluationConfig()
-            
-        # Handle device auto-detection
-        if self.device == "auto":
-            if torch.cuda.is_available():
-                self.device = torch.device("cuda")
-            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-                self.device = torch.device("mps")
-            else:
-                self.device = torch.device("cpu")
-        elif isinstance(self.device, str):
+        """Initialize and validate configuration."""
+        # Validate environment type
+        if self.environment_type not in ["cupid", "lerobot"]:
+            raise ValueError(f"environment_type must be 'cupid' or 'lerobot', got '{self.environment_type}'")
+        
+        # Validate LeRobot path if using LeRobot environment
+        if self.environment_type == "lerobot" and self.lerobot_path:
+            import os
+            if not os.path.exists(self.lerobot_path):
+                raise ValueError(f"LeRobot path does not exist: {self.lerobot_path}")
+        
+        # Convert device to torch.device if it's a string
+        if isinstance(self.device, str):
             self.device = torch.device(self.device)
     
     @classmethod
@@ -152,10 +166,11 @@ class Config:
                          Default: None (use all)
         """
         return cls(
+            config_name="default",
             max_episodes=max_episodes,  # Configurable, None = use all available
             training=TrainingConfig(num_steps=20000),
             influence=InfluenceConfig(selection_ratio=0.33),
-            evaluation=EvaluationConfig(num_episodes=100)
+            evaluation=EvaluationConfig(num_episodes=300)  # Increased for better success rate detection
         )
     
     @classmethod
@@ -169,17 +184,19 @@ class Config:
                          Set to None to use all available demonstrations.
         """
         return cls(
+            config_name="quick_demo",
             max_episodes=max_episodes,   # Configurable, default 1000 for speed
             training=TrainingConfig(
-                num_steps=15000,     # Good balance of quality and speed
+                num_steps=50000,     # FIXED: Increased from 15K to 50K for better diffusion training
                 batch_size=64,       # Standard batch size
-                checkpoint_every=3000  # Adjusted for step count
+                checkpoint_every=10000  # Adjusted for step count
             ),
             influence=InfluenceConfig(
-                num_samples=200,     # Reasonable for speed
-                selection_ratio=0.4  # 40% selection ratio
+                hessian_sample_ratio=0.4,  # Use 40% for Hessian (faster)
+                eval_sample_ratio=0.25,    # Use 25% for evaluation (faster)
+                selection_ratio=0.4        # 40% selection ratio
             ),
-            evaluation=EvaluationConfig(num_episodes=50)
+            evaluation=EvaluationConfig(num_episodes=200)  # Increased for meaningful success rate statistics
         )
     
     def get_selection_count(self, total_demos: int) -> int:
@@ -189,9 +206,28 @@ class Config:
         # Apply min/max constraints
         target_count = max(target_count, self.influence.min_selection)
         target_count = min(target_count, self.influence.max_selection)
-        target_count = min(target_count, total_demos)  # Can't select more than available
         
         return target_count
+    
+    def get_hessian_sample_count(self, total_demos: int) -> int:
+        """Calculate number of trajectories to use for Hessian computation."""
+        target_count = int(total_demos * self.influence.hessian_sample_ratio)
+        
+        # Apply min/max constraints
+        target_count = max(target_count, self.influence.min_hessian_samples)
+        target_count = min(target_count, self.influence.max_hessian_samples)
+        
+        return min(target_count, total_demos)  # Can't exceed total
+    
+    def get_eval_sample_count(self, total_demos: int) -> int:
+        """Calculate number of trajectories to use for evaluation rollouts."""
+        target_count = int(total_demos * self.influence.eval_sample_ratio)
+        
+        # Apply min/max constraints
+        target_count = max(target_count, self.influence.min_eval_samples)
+        target_count = min(target_count, self.influence.max_eval_samples)
+        
+        return min(target_count, total_demos)  # Can't exceed total
     
     @classmethod
     def for_demos(cls, max_episodes: int, **kwargs) -> 'Config':
@@ -213,16 +249,16 @@ class Config:
             # Use 250 demonstrations for quick testing
             config = Config.for_demos(250)
         """
-        # Choose sensible defaults based on demo count
+        # Choose sensible defaults based on demo count - FIXED to use proper training steps
         if max_episodes <= 500:
             # Small dataset - need more intensive training
             config = cls.quick_demo(max_episodes)
-            config.training.num_steps = 18000
+            config.training.num_steps = 75000  # FIXED: Increased from 18K to 75K
             config.influence.selection_ratio = 0.30
         elif max_episodes <= 1500:
             # Medium dataset - balanced approach
             config = cls.default(max_episodes)
-            config.training.num_steps = 18000
+            config.training.num_steps = 100000  # FIXED: Increased from 18K to 100K
             config.influence.selection_ratio = 0.35
         else:
             # Large dataset - standard approach
@@ -243,22 +279,30 @@ class Config:
 
     @classmethod
     def smoke_test(cls, max_episodes: int = 20) -> 'Config':
-        """Ultra-fast smoke test configuration for validating pipeline execution."""
+        """
+        FIXED: Proper smoke test configuration that actually works for diffusion models.
+        
+        The previous 10-step configuration was completely inadequate for diffusion policy training.
+        This provides a minimal but functional test configuration.
+        """
         return cls(
-            dataset_name="lerobot/pusht",
+            config_name="smoke_test",
+            dataset_name="lerobot/pusht_image",
             max_episodes=max_episodes,
             checkpoint_dir="checkpoints_debug",
             force_retrain=True,
             training=TrainingConfig(
-                num_steps=10,      # Minimal steps
-                batch_size=8,
-                learning_rate=1e-3,
-                checkpoint_every=10
+                num_steps=5000,      # FIXED: Increased from 10 to 5000 (minimum viable for diffusion)
+                batch_size=32,       # Smaller batch for faster iteration
+                learning_rate=1e-3,  # Slightly higher LR for faster convergence
+                checkpoint_every=2500  # Save twice during training
             ),
             influence=InfluenceConfig(
-                num_samples=2,       # Minimal samples for Hessian/rollouts
-                damping=1e-3,
-                selection_ratio=0.5 # Ensure a few demos are selected
+                hessian_sample_ratio=0.3,  # Use 30% for Hessian (very fast)
+                eval_sample_ratio=0.2,     # Use 20% for evaluation (very fast)
+                min_hessian_samples=20,    # Lower minimum for smoke test
+                min_eval_samples=10,       # Lower minimum for smoke test
+                selection_ratio=0.5        # Ensure a few demos are selected
             ),
-            evaluation=EvaluationConfig(num_episodes=2) # Minimal episodes
+            evaluation=EvaluationConfig(num_episodes=10)   # Keep smoke test fast and minimal
         ) 

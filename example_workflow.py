@@ -33,8 +33,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Add src to path for imports
+# Add src and lerobot to path for imports
 sys.path.append(str(Path(__file__).parent / "src"))
+# HACK: Forcefully add the lerobot path to resolve import issues
+lerobot_path = "/home/mphielipp/robotsw/lerobot"
+if lerobot_path not in sys.path:
+    sys.path.insert(0, lerobot_path)
 
 try:
     from cupid import CUPID, Config
@@ -95,7 +99,7 @@ def validate_environment():
     return True
 
 
-def main(render=False, max_episodes=None, config_name="quick_demo", selection_ratio=None, force_retrain=False, environment="cupid", lerobot_path=None):
+def main(render=False, max_episodes=None, config_name="quick_demo", selection_ratio=None, force_retrain=False, environment="cupid", lerobot_path=None, generate_videos=False):
     """
     Complete CUPID workflow example with comprehensive error handling.
     
@@ -127,6 +131,8 @@ def main(render=False, max_episodes=None, config_name="quick_demo", selection_ra
         logger.info(f"📋 Loading configuration: {config_name}")
         if config_name == "smoke_test":
             config = Config.smoke_test(max_episodes=max_episodes or 20)
+        elif config_name == "micro_test":
+            config = Config.micro_test(max_episodes=max_episodes or 10)
         elif config_name == "quick_demo":
             if max_episodes is None:
                 config = Config.quick_demo()  # Default: 1000 demos
@@ -181,7 +187,9 @@ def main(render=False, max_episodes=None, config_name="quick_demo", selection_ra
             logger.info("✅ Baseline policy loaded from checkpoint")
         
     except Exception as e:
+        import traceback
         logger.error(f"❌ Failed to train baseline policy: {e}")
+        logger.error(f"Full traceback:\n{traceback.format_exc()}")
         return 1
     
     try:
@@ -275,41 +283,44 @@ def main(render=False, max_episodes=None, config_name="quick_demo", selection_ra
                 curated_policy, "Curated Policy", flat_dataset, num_rollouts=rollout_count
             )
         
-        # ENHANCED: Always generate video files for comparison (even without --render)
-        logger.info("   🎬 Generating video comparisons...")
-        video_output_dir = Path("outputs") / "videos"
-        video_output_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Create evaluator for video generation (no interactive rendering)
-        from cupid.evaluation import TaskEvaluator
-        video_evaluator = TaskEvaluator(config, render_mode=None)
-        
-        # Flatten dataset for video generation
-        flat_dataset = []
-        for trajectory in cupid.dataset:
-            flat_dataset.extend(trajectory)
-        
-        # Generate videos for both policies
-        video_count = 3 if config_name == "smoke_test" else 5
-        logger.info(f"      📹 Generating {video_count} videos for each policy...")
-        
-        baseline_videos = video_evaluator.generate_policy_videos(
-            baseline_policy, "Baseline_Policy", flat_dataset, 
-            num_videos=video_count, output_dir=str(video_output_dir)
-        )
-        
-        curated_videos = video_evaluator.generate_policy_videos(
-            curated_policy, "Curated_Policy", flat_dataset, 
-            num_videos=video_count, output_dir=str(video_output_dir)
-        )
-        
-        all_videos = baseline_videos + curated_videos
-        if all_videos:
-            logger.info(f"✅ Generated {len(all_videos)} video files:")
-            for video_path in all_videos:
-                logger.info(f"   📹 {video_path}")
+        # Generate videos only if explicitly requested
+        if args.generate_videos:
+            logger.info("   🎬 Generating video comparisons...")
+            video_output_dir = Path("outputs") / "videos"
+            video_output_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Create evaluator for video generation (no interactive rendering)
+            from cupid.evaluation import TaskEvaluator
+            video_evaluator = TaskEvaluator(config, render_mode=None)
+            
+            # Flatten dataset for video generation
+            flat_dataset = []
+            for trajectory in cupid.dataset:
+                flat_dataset.extend(trajectory)
+            
+            # Generate videos for both policies
+            video_count = 3 if config_name == "smoke_test" else 5
+            logger.info(f"      📹 Generating {video_count} videos for each policy...")
+            
+            baseline_videos = video_evaluator.generate_policy_videos(
+                baseline_policy, "Baseline_Policy", flat_dataset, 
+                num_videos=video_count, output_dir=str(video_output_dir)
+            )
+            
+            curated_videos = video_evaluator.generate_policy_videos(
+                curated_policy, "Curated_Policy", flat_dataset, 
+                num_videos=video_count, output_dir=str(video_output_dir)
+            )
+            
+            all_videos = baseline_videos + curated_videos
+            if all_videos:
+                logger.info(f"✅ Generated {len(all_videos)} video files:")
+                for video_path in all_videos:
+                    logger.info(f"   📹 {video_path}")
+            else:
+                logger.info("   ℹ️ Video generation skipped (requires additional dependencies)")
         else:
-            logger.info("   ℹ️ Video generation skipped (requires additional dependencies)")
+            logger.info("   ℹ️ Video generation skipped (use --generate-videos to enable)")
         
     except Exception as e:
         logger.error(f"❌ Failed to evaluate policies: {e}")
@@ -408,6 +419,7 @@ if __name__ == "__main__":
                         help="Environment type: 'cupid' (custom simulator) or 'lerobot' (original)")
     parser.add_argument("--lerobot-path", type=str, default="/home/mphielipp/robotsw/lerobot",
                         help="Path to LeRobot installation (if using lerobot environment)")
+    parser.add_argument("--generate-videos", action="store_true", help="Generate comparison videos")
 
     args = parser.parse_args()
 
@@ -418,5 +430,6 @@ if __name__ == "__main__":
         selection_ratio=args.selection_ratio,
         force_retrain=args.force_retrain,
         environment=args.environment,
-        lerobot_path=args.lerobot_path
+        lerobot_path=args.lerobot_path,
+        generate_videos=args.generate_videos
     )) 

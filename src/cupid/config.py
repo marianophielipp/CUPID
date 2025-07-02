@@ -7,6 +7,9 @@ This module provides configuration classes for different components of the CUPID
 from dataclasses import dataclass, field
 from typing import Optional, Union
 import torch
+from lerobot.common.policies.diffusion.configuration_diffusion import DiffusionConfig
+from lerobot.common.policies.diffusion.modeling_diffusion import DiffusionPolicy # HACK For some reason this is needed to avoid circular import issues
+from lerobot.configs.policies import PreTrainedConfig
 
 
 @dataclass
@@ -18,6 +21,9 @@ class TrainingConfig:
     batch_size: int = 64     # LeRobot standard: 64
     learning_rate: float = 1e-4
     weight_decay: float = 1e-6
+    
+    # AMP (Automatic Mixed Precision) - DISABLED for PushT like LeRobot
+    use_amp: bool = False    # LeRobot disables AMP for PushT evaluation
     
     # Checkpointing
     checkpoint_every: int = 20000  # Save every 20K steps (5 checkpoints total)
@@ -56,26 +62,20 @@ class TrainingConfig:
 
 
 @dataclass
-class PolicyConfig:
-    """Policy architecture configuration."""
+class PolicyConfig(DiffusionConfig):
+    """
+    Policy configuration, inheriting from LeRobot's DiffusionConfig.
+    This ensures that we use the same battle-tested parameters and architecture
+    from the original LeRobot implementation for Diffusion Policy on PushT.
+    """
+
+    # Set the policy type for LeRobot's factory
+    type: str = "diffusion"
     
-    # Architecture
-    architecture: str = "DiffusionPolicy"
-    
-    # Network dimensions
-    hidden_dim: int = 256
-    num_layers: int = 4
-    
-    # Diffusion-specific parameters
-    num_diffusion_steps: int = 100
-    noise_schedule: str = "cosine"
-    
-    # Action prediction
-    action_horizon: int = 8
-    observation_horizon: int = 2
-    
-    # Sampling parameters
-    temperature: float = 100.0  # Temperature for action sampling (higher = more diverse actions)
+    # We can override or add specific parameters here if needed,
+    # but for now, we rely on the defaults provided by LeRobot's DiffusionConfig,
+    # which are optimized for the PushT task.
+    pass
 
 
 @dataclass
@@ -150,6 +150,10 @@ class Config:
             import os
             if not os.path.exists(self.lerobot_path):
                 raise ValueError(f"LeRobot path does not exist: {self.lerobot_path}")
+            # HACK: Add lerobot to python path
+            import sys
+            if self.lerobot_path not in sys.path:
+                sys.path.append(self.lerobot_path)
         
         # Convert device to torch.device if it's a string
         if isinstance(self.device, str):
@@ -168,7 +172,13 @@ class Config:
         return cls(
             config_name="default",
             max_episodes=max_episodes,  # Configurable, None = use all available
-            training=TrainingConfig(num_steps=20000),
+            training=TrainingConfig(num_steps=100000), # Increased from 20K
+            policy=PolicyConfig(
+                n_obs_steps=2,
+                horizon=16,
+                n_action_steps=8,
+                num_train_timesteps=100,
+            ),
             influence=InfluenceConfig(selection_ratio=0.33),
             evaluation=EvaluationConfig(num_episodes=300)  # Increased for better success rate detection
         )
@@ -187,16 +197,23 @@ class Config:
             config_name="quick_demo",
             max_episodes=max_episodes,   # Configurable, default 1000 for speed
             training=TrainingConfig(
-                num_steps=50000,     # FIXED: Increased from 15K to 50K for better diffusion training
-                batch_size=64,       # Standard batch size
-                checkpoint_every=10000  # Adjusted for step count
+                num_steps=50000,
+                batch_size=64,
+                checkpoint_every=10000
+            ),
+            policy=PolicyConfig(
+                n_obs_steps=2,
+                horizon=16,
+                n_action_steps=8,
+                num_train_timesteps=100,
+                down_dims=(256, 512, 1024), # Smaller Unet for faster demo
             ),
             influence=InfluenceConfig(
-                hessian_sample_ratio=0.4,  # Use 40% for Hessian (faster)
-                eval_sample_ratio=0.25,    # Use 25% for evaluation (faster)
-                selection_ratio=0.4        # 40% selection ratio
+                hessian_sample_ratio=0.4,
+                eval_sample_ratio=0.25,
+                selection_ratio=0.4
             ),
-            evaluation=EvaluationConfig(num_episodes=200)  # Increased for meaningful success rate statistics
+            evaluation=EvaluationConfig(num_episodes=200)
         )
     
     def get_selection_count(self, total_demos: int) -> int:
@@ -249,20 +266,21 @@ class Config:
             # Use 250 demonstrations for quick testing
             config = Config.for_demos(250)
         """
-        # Choose sensible defaults based on demo count - FIXED to use proper training steps
+        # Choose sensible defaults based on demo count
         if max_episodes <= 500:
-            # Small dataset - need more intensive training
+            # Small dataset - more intensive training
             config = cls.quick_demo(max_episodes)
-            config.training.num_steps = 75000  # FIXED: Increased from 18K to 75K
+            config.training.num_steps = 75000
             config.influence.selection_ratio = 0.30
         elif max_episodes <= 1500:
             # Medium dataset - balanced approach
             config = cls.default(max_episodes)
-            config.training.num_steps = 100000  # FIXED: Increased from 18K to 100K
+            config.training.num_steps = 100000
             config.influence.selection_ratio = 0.35
         else:
             # Large dataset - standard approach
             config = cls.default(max_episodes)
+            config.training.num_steps = 150000 # More steps for large datasets
         
         # Override any additional parameters provided from kwargs
         for key, value in kwargs.items():
@@ -292,17 +310,61 @@ class Config:
             checkpoint_dir="checkpoints_debug",
             force_retrain=True,
             training=TrainingConfig(
-                num_steps=5000,      # FIXED: Increased from 10 to 5000 (minimum viable for diffusion)
-                batch_size=32,       # Smaller batch for faster iteration
-                learning_rate=1e-3,  # Slightly higher LR for faster convergence
-                checkpoint_every=2500  # Save twice during training
+                num_steps=5000,
+                batch_size=32,
+                learning_rate=1e-3,
+                checkpoint_every=2500
+            ),
+            policy=PolicyConfig(
+                n_obs_steps=1,
+                horizon=8,
+                n_action_steps=4,
+                num_train_timesteps=10,
+                down_dims=(128, 256), # Minimal Unet
             ),
             influence=InfluenceConfig(
-                hessian_sample_ratio=0.3,  # Use 30% for Hessian (very fast)
-                eval_sample_ratio=0.2,     # Use 20% for evaluation (very fast)
-                min_hessian_samples=20,    # Lower minimum for smoke test
-                min_eval_samples=10,       # Lower minimum for smoke test
-                selection_ratio=0.5        # Ensure a few demos are selected
+                hessian_sample_ratio=0.3,
+                eval_sample_ratio=0.2,
+                min_hessian_samples=20,
+                min_eval_samples=10,
+                selection_ratio=0.5
             ),
-            evaluation=EvaluationConfig(num_episodes=10)   # Keep smoke test fast and minimal
+            evaluation=EvaluationConfig(num_episodes=10)
+        )
+
+    @classmethod
+    def micro_test(cls, max_episodes: int = 10) -> 'Config':
+        """
+        Ultra-minimal test configuration for debugging the pipeline.
+        Uses absolute minimum settings to test each step quickly.
+        """
+        return cls(
+            config_name="micro_test",
+            dataset_name="lerobot/pusht_image",
+            max_episodes=max_episodes,
+            checkpoint_dir="checkpoints",  # Use main checkpoints to reuse existing policy
+            force_retrain=False,  # Don't retrain - reuse existing policy!
+            training=TrainingConfig(
+                num_steps=100,  # Minimal training if needed
+                batch_size=8,
+                learning_rate=1e-3,
+                checkpoint_every=50
+            ),
+            policy=PolicyConfig(
+                n_obs_steps=2,  # Match the small trained policy
+                horizon=16,     # Match the small trained policy  
+                n_action_steps=8,
+                num_train_timesteps=10,
+                down_dims=(256, 512), # Match the SMALL trained policy exactly
+            ),
+            influence=InfluenceConfig(
+                hessian_sample_ratio=0.1,  # Use only 10% for Hessian
+                eval_sample_ratio=0.1,     # Use only 10% for evaluation
+                min_hessian_samples=5,     # Absolute minimum
+                min_eval_samples=3,        # Absolute minimum
+                max_hessian_samples=10,    # Cap at 10
+                max_eval_samples=5,        # Cap at 5
+                selection_ratio=0.5        # Select 50% of the small dataset
+            ),
+            evaluation=EvaluationConfig(num_episodes=3)  # Just 3 episodes
         ) 

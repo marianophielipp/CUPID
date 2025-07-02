@@ -598,14 +598,33 @@ class TaskEvaluator:
         
         for step in range(max_steps):
             # Get current observation
-            current_state = torch.FloatTensor(state['observation']).unsqueeze(0).to(self.device)
+            current_state = torch.FloatTensor(state['observation']).to(self.device)
             
-            # For simulation, we only have state observations (no images)
-            policy_input = current_state
+            # Try using n_obs_steps=1 to see if that works around the tensor reshaping issue
+            state_batch = current_state.unsqueeze(0)  # (B, state_dim) = (1, 2)
             
-            # Generate action with policy using proper diffusion sampling and configured temperature
-            temperature = getattr(self.config.policy, 'temperature', 1.0) if hasattr(self, 'config') else 1.0
-            predicted_action = policy.sample_action(policy_input, temperature=temperature)
+            # Create proper batch format for LeRobot policy
+            # Check if policy expects images by looking at its vision backbone
+            if hasattr(policy, 'config') and hasattr(policy.config, 'vision_backbone') and policy.config.vision_backbone:
+                # Policy expects images, provide dummy images
+                policy_input = {
+                    'observation.state': state_batch,  # (B, state_dim)
+                    'observation.image': torch.zeros(1, 3, 84, 84, device=self.device)  # (B, C, H, W)
+                }
+            else:
+                # State-only policy
+                policy_input = {
+                    'observation.state': state_batch
+                }
+            
+            # Generate action with policy using LeRobot's select_action method
+            try:
+                predicted_action = policy.select_action(policy_input)
+            except Exception as e:
+                # If the above fails, try with just state (fallback)
+                logger.debug(f"Policy select_action failed with full input, trying state-only: {e}")
+                policy_input = {'observation.state': state_batch}
+                predicted_action = policy.select_action(policy_input)
             
             # Convert to numpy and take step
             action = predicted_action.cpu().numpy().flatten()
@@ -827,8 +846,27 @@ class TaskEvaluator:
                 obs_tensor = torch.FloatTensor(obs).to(self.device).unsqueeze(0)
                 
                 with torch.no_grad():
-                    temperature = getattr(self.config.policy, 'temperature', 1.0) if hasattr(self, 'config') else 1.0
-                    action = policy.sample_action(obs_tensor, temperature=temperature).cpu().numpy()[0]
+                    # Create proper batch format for LeRobot policy
+                    # Check if policy expects images by looking at its vision backbone
+                    if hasattr(policy, 'config') and hasattr(policy.config, 'vision_backbone') and policy.config.vision_backbone:
+                        # Policy expects images, provide dummy images
+                        policy_input = {
+                            'observation.state': obs_tensor,
+                            'observation.image': torch.zeros(1, 3, 84, 84, device=self.device)  # Dummy image
+                        }
+                    else:
+                        # State-only policy
+                        policy_input = {
+                            'observation.state': obs_tensor
+                        }
+                    
+                    try:
+                        action = policy.select_action(policy_input).cpu().numpy()[0]
+                    except Exception as e:
+                        # If the above fails, try with just state (fallback)
+                        logger.debug(f"Policy select_action failed with full input, trying state-only: {e}")
+                        policy_input = {'observation.state': obs_tensor}
+                        action = policy.select_action(policy_input).cpu().numpy()[0]
                 
                 # Take step
                 step_result = simulator.step(action, dt=1/20)
@@ -936,10 +974,14 @@ class TaskEvaluator:
         """
         logger.info("Comparing baseline and curated policies...")
         
-        # Evaluate both policies
+        # Evaluate baseline policy
+        logger.info("📊 Evaluating BASELINE policy...")
         baseline_metrics = self.evaluate_policy_on_task(
             baseline_policy, dataset, num_episodes
         )
+        
+        # Evaluate curated policy  
+        logger.info("📊 Evaluating CURATED policy...")
         curated_metrics = self.evaluate_policy_on_task(
             curated_policy, dataset, num_episodes
         )
@@ -1086,8 +1128,28 @@ class TaskEvaluator:
                 
                 # Get action from policy
                 obs_tensor = torch.FloatTensor(obs).to(self.device).unsqueeze(0)
-                temperature = getattr(self.config.policy, 'temperature', 1.0) if hasattr(self, 'config') else 1.0
-                action = policy.sample_action(obs_tensor, temperature=temperature).cpu().numpy()[0]
+                
+                # Create proper batch format for LeRobot policy
+                # Check if policy expects images by looking at its vision backbone
+                if hasattr(policy, 'config') and hasattr(policy.config, 'vision_backbone') and policy.config.vision_backbone:
+                    # Policy expects images, provide dummy images
+                    policy_input = {
+                        'observation.state': obs_tensor,
+                        'observation.image': torch.zeros(1, 3, 84, 84, device=self.device)  # Dummy image
+                    }
+                else:
+                    # State-only policy
+                    policy_input = {
+                        'observation.state': obs_tensor
+                    }
+                
+                try:
+                    action = policy.select_action(policy_input).cpu().numpy()[0]
+                except Exception as e:
+                    # If the above fails, try with just state (fallback)
+                    logger.debug(f"Policy select_action failed with full input, trying state-only: {e}")
+                    policy_input = {'observation.state': obs_tensor}
+                    action = policy.select_action(policy_input).cpu().numpy()[0]
                 
                 # Take step
                 step_result = simulator.step(action, dt=1/10)  # 10 FPS for video

@@ -111,17 +111,49 @@ class CUPIDVisualizer:
     def _plot_training_progress(self, ax, baseline_history: List[float], 
                                curated_history: List[float]) -> None:
         """Plot training loss progression for both policies."""
-        ax.plot(baseline_history, color=self.colors['baseline'], 
-                linewidth=2, label=f'Baseline ({len(baseline_history)} steps)', alpha=0.8)
-        ax.plot(curated_history, color=self.colors['curated'], 
-                linewidth=2, label=f'Curated ({len(curated_history)} steps)', alpha=0.8)
+        
+        # Handle case where baseline was loaded from checkpoint (no training history)
+        if baseline_history is not None and len(baseline_history) > 0:
+            ax.plot(baseline_history, color=self.colors['baseline'], 
+                    linewidth=2, label=f'Baseline ({len(baseline_history)} steps)', alpha=0.8)
+            has_baseline = True
+        else:
+            has_baseline = False
+        
+        # Always plot curated history (should always be available)
+        if curated_history is not None and len(curated_history) > 0:
+            ax.plot(curated_history, color=self.colors['curated'], 
+                    linewidth=2, label=f'Curated ({len(curated_history)} steps)', alpha=0.8)
+            has_curated = True
+        else:
+            has_curated = False
         
         ax.set_xlabel('Training Steps')
         ax.set_ylabel('Loss')
-        ax.set_title('Training Progress Comparison', fontweight='bold')
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-        ax.set_yscale('log')
+        
+        # Update title and add info about missing baseline
+        if has_baseline and has_curated:
+            ax.set_title('Training Progress Comparison', fontweight='bold')
+        elif has_curated and not has_baseline:
+            ax.set_title('Training Progress (Baseline loaded from checkpoint)', fontweight='bold')
+            # Add text explaining why baseline is missing
+            ax.text(0.02, 0.98, 'Baseline: Loaded from existing checkpoint\n(no training history available)', 
+                   transform=ax.transAxes, verticalalignment='top', 
+                   bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.7),
+                   fontsize=9)
+        elif has_baseline and not has_curated:
+            ax.set_title('Training Progress (Curated training failed)', fontweight='bold')
+        else:
+            ax.set_title('Training Progress (No data available)', fontweight='bold')
+            ax.text(0.5, 0.5, 'No training history available\n(Both policies loaded from checkpoints)', 
+                   transform=ax.transAxes, ha='center', va='center',
+                   bbox=dict(boxstyle='round', facecolor='lightgray', alpha=0.7),
+                   fontsize=10)
+        
+        if has_baseline or has_curated:
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+            ax.set_yscale('log')
     
     def _plot_influence_distribution(self, ax, influence_scores: np.ndarray, 
                                    selected_indices: List[int]) -> None:
@@ -163,38 +195,22 @@ class CUPIDVisualizer:
     def _plot_performance_comparison(self, ax, baseline_metrics: Dict[str, float], 
                                    curated_metrics: Dict[str, float]) -> None:
         """Plot performance comparison between baseline and curated policies."""
-        # Use task-relevant metrics instead of loss metrics
-        if 'success_rate' in baseline_metrics:
-            # Task-based metrics (prioritize working metrics)
-            baseline_reward = baseline_metrics.get('avg_reward', 0)
-            curated_reward = curated_metrics.get('avg_reward', 0)
-            
-            # If we have meaningful rewards, emphasize them
-            if baseline_reward > 0 or curated_reward > 0:
-                metrics = ['avg_reward', 'success_rate']
-                metric_labels = ['Avg Reward\n(Primary)', 'Success Rate']
-            else:
-                # Fallback to standard metrics
-                metrics = ['success_rate', 'avg_reward', 'avg_final_distance']
-                metric_labels = ['Success Rate', 'Avg Reward', 'Final Distance']
-            
-            baseline_values = [baseline_metrics.get(m, 0) for m in metrics]
-            curated_values = [curated_metrics.get(m, 0) for m in metrics]
-            
-            # For distance, invert so lower is better (show improvement correctly)
-            if 'avg_final_distance' in metrics:
-                dist_idx = metrics.index('avg_final_distance')
-                # Normalize distance to 0-1 scale and invert (1 - normalized_distance)
-                max_dist = max(baseline_values[dist_idx], curated_values[dist_idx], 1.0)
+        # Always show the main task metrics
+        metrics = ['success_rate', 'avg_reward', 'avg_final_distance']
+        metric_labels = ['Success Rate', 'Avg Reward', 'Final Distance']
+        
+        baseline_values = [baseline_metrics.get(m, 0) for m in metrics]
+        curated_values = [curated_metrics.get(m, 0) for m in metrics]
+        
+        # For distance, invert so lower is better (show improvement correctly)
+        if 'avg_final_distance' in metrics:
+            dist_idx = metrics.index('avg_final_distance')
+            # Normalize distance to 0-1 scale and invert (1 - normalized_distance)
+            max_dist = max(baseline_values[dist_idx], curated_values[dist_idx], 1.0)
+            if max_dist > 0:
                 baseline_values[dist_idx] = 1.0 - (baseline_values[dist_idx] / max_dist)
                 curated_values[dist_idx] = 1.0 - (curated_values[dist_idx] / max_dist)
                 metric_labels[dist_idx] = 'Distance Quality\n(1 - normalized)'
-        else:
-            # Fallback to loss metrics if task metrics not available
-            metrics = ['avg_loss', 'std_loss', 'min_loss', 'max_loss']
-            metric_labels = ['Avg Loss', 'Std Loss', 'Min Loss', 'Max Loss']
-            baseline_values = [baseline_metrics.get(m, 0) for m in metrics]
-            curated_values = [curated_metrics.get(m, 0) for m in metrics]
         
         x = np.arange(len(metrics))
         width = 0.35
@@ -206,21 +222,43 @@ class CUPIDVisualizer:
         
         ax.set_xlabel('Task Performance Metrics')
         ax.set_ylabel('Performance Score')
-        ax.set_title('Task Performance Comparison', fontweight='bold')
+        ax.set_title('Baseline vs Curated Performance', fontweight='bold')
         ax.set_xticks(x)
-        ax.set_xticklabels(metric_labels, rotation=45, ha='right')
-        ax.legend()
+        ax.set_xticklabels(metric_labels, rotation=0, ha='center')  # Better readability
+        ax.legend(loc='upper left')
         ax.grid(True, alpha=0.3)
         
-        # Add value labels on bars
-        for bars in [bars1, bars2]:
-            for bar in bars:
+        # Add value labels on bars with better formatting
+        for bars, name in [(bars1, 'Baseline'), (bars2, 'Curated')]:
+            for i, bar in enumerate(bars):
                 height = bar.get_height()
-                ax.annotate(f'{height:.3f}',
+                # Format values appropriately
+                if metrics[i] == 'success_rate':
+                    label = f'{height:.1%}'
+                elif metrics[i] == 'avg_reward':
+                    label = f'{height:.3f}'
+                else:
+                    label = f'{height:.2f}'
+                
+                ax.annotate(label,
                            xy=(bar.get_x() + bar.get_width() / 2, height),
                            xytext=(0, 3),  # 3 points vertical offset
                            textcoords="offset points",
-                           ha='center', va='bottom', fontsize=8)
+                           ha='center', va='bottom', fontsize=9, fontweight='bold')
+        
+        # Add a text box showing the comparison clearly
+        baseline_reward = baseline_metrics.get('avg_reward', 0)
+        curated_reward = curated_metrics.get('avg_reward', 0)
+        baseline_success = baseline_metrics.get('success_rate', 0)
+        curated_success = curated_metrics.get('success_rate', 0)
+        
+        comparison_text = f"""COMPARISON SUMMARY:
+Baseline: {baseline_success:.1%} success, {baseline_reward:.3f} reward
+Curated:  {curated_success:.1%} success, {curated_reward:.3f} reward"""
+        
+        ax.text(0.02, 0.98, comparison_text, transform=ax.transAxes, 
+                verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8),
+                fontsize=8, fontfamily='monospace')
     
     def _plot_influence_ranking(self, ax, influence_scores: np.ndarray, 
                               selected_indices: List[int]) -> None:

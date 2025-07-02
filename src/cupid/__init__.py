@@ -9,7 +9,7 @@ Key components:
 - Config: Configuration management
 - CUPID: Main orchestrator class  
 - PolicyManager: Policy creation and management
-- PolicyTrainer: Training with LeRobot alignment
+- Trainer: Training with LeRobot alignment
 - InfluenceComputer: Influence function computation
 - DatasetManager: Dataset loading and management
 - TaskEvaluator: Task-based performance evaluation
@@ -19,7 +19,7 @@ Key components:
 from .config import Config, TrainingConfig, PolicyConfig, InfluenceConfig
 from .cupid import CUPID
 from .policy import PolicyManager, DiffusionPolicy
-from .trainer import PolicyTrainer
+from .trainer import Trainer
 from .influence import InfluenceComputer
 from .data import DatasetManager
 from .evaluation import TaskEvaluator
@@ -30,7 +30,7 @@ __all__ = [
     'Config', 'TrainingConfig', 'PolicyConfig', 'InfluenceConfig',
     'CUPID',
     'PolicyManager', 'DiffusionPolicy',
-    'PolicyTrainer',
+    'Trainer',
     'InfluenceComputer', 
     'DatasetManager',
     'TaskEvaluator',

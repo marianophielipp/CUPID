@@ -51,6 +51,155 @@ def influence_collate_fn(batch):
     return result
 
 
+def create_lerobot_sequence_batch(trajectory_data: List[Dict], config: Config) -> Dict[str, torch.Tensor]:
+    """
+    Create a proper LeRobot-style sequence batch from trajectory data.
+    
+    This function mimics LeRobot's delta_timestamps functionality to create
+    proper observation and action sequences instead of repeating single timesteps.
+    
+    Args:
+        trajectory_data: List of trajectory steps
+        config: CUPID configuration
+        
+    Returns:
+        Properly formatted batch for LeRobot DiffusionPolicy
+    """
+    if not trajectory_data:
+        raise ValueError("Empty trajectory data")
+    
+    # Extract the sequence of states and actions
+    states = []
+    actions = []
+    images = []
+    
+    for step in trajectory_data:
+        if 'observation.state' in step:
+            state = step['observation.state']
+            # Ensure state is a numpy array
+            if not isinstance(state, np.ndarray):
+                state = np.array(state, dtype=np.float32)
+            states.append(state)
+        else:
+            state = step['observation']  # fallback key
+            if not isinstance(state, np.ndarray):
+                state = np.array(state, dtype=np.float32)
+            states.append(state)
+            
+        action = step['action']
+        # Ensure action is a numpy array
+        if not isinstance(action, np.ndarray):
+            action = np.array(action, dtype=np.float32)
+        actions.append(action)
+        
+        if 'observation.image' in step:
+            images.append(step['observation.image'])
+    
+    # Convert lists to arrays with proper shape handling
+    try:
+        states = np.array(states, dtype=np.float32)  # Shape: (seq_len, state_dim)
+        actions = np.array(actions, dtype=np.float32)  # Shape: (seq_len, action_dim)
+    except ValueError as e:
+        # Handle inhomogeneous shapes by taking first elements and padding/truncating
+        logger.warning(f"Inhomogeneous trajectory shapes detected: {e}")
+        
+        # Get dimensions from first elements
+        if states:
+            state_dim = len(states[0]) if hasattr(states[0], '__len__') else 1
+            states_fixed = []
+            for state in states:
+                if hasattr(state, '__len__'):
+                    if len(state) >= state_dim:
+                        states_fixed.append(state[:state_dim])
+                    else:
+                        # Pad with zeros
+                        padded = np.zeros(state_dim, dtype=np.float32)
+                        padded[:len(state)] = state
+                        states_fixed.append(padded)
+                else:
+                    # Scalar state
+                    padded = np.zeros(state_dim, dtype=np.float32)
+                    padded[0] = state
+                    states_fixed.append(padded)
+            states = np.array(states_fixed, dtype=np.float32)
+        
+        if actions:
+            action_dim = len(actions[0]) if hasattr(actions[0], '__len__') else 1
+            actions_fixed = []
+            for action in actions:
+                if hasattr(action, '__len__'):
+                    if len(action) >= action_dim:
+                        actions_fixed.append(action[:action_dim])
+                    else:
+                        # Pad with zeros
+                        padded = np.zeros(action_dim, dtype=np.float32)
+                        padded[:len(action)] = action
+                        actions_fixed.append(padded)
+                else:
+                    # Scalar action
+                    padded = np.zeros(action_dim, dtype=np.float32)
+                    padded[0] = action
+                    actions_fixed.append(padded)
+            actions = np.array(actions_fixed, dtype=np.float32)
+    
+    # Create observation sequence using the first n_obs_steps observations
+    n_obs_steps = config.policy.n_obs_steps
+    if len(states) >= n_obs_steps:
+        # Use actual sequence of observations
+        obs_sequence = states[:n_obs_steps]  # (n_obs_steps, state_dim)
+    else:
+        # Pad by repeating the first observation
+        obs_sequence = np.tile(states[0], (n_obs_steps, 1))  # (n_obs_steps, state_dim)
+    
+    # Create action sequence using the first horizon actions
+    horizon = config.policy.horizon
+    if len(actions) >= horizon:
+        # Use actual sequence of actions
+        action_sequence = actions[:horizon]  # (horizon, action_dim)
+    else:
+        # Pad by repeating the last action to fill horizon
+        action_sequence = np.concatenate([
+            actions,
+            np.tile(actions[-1], (horizon - len(actions), 1))
+        ])  # (horizon, action_dim)
+    
+    # Convert to tensors and add batch dimension
+    batch = {
+        'observation.state': torch.from_numpy(obs_sequence).unsqueeze(0),  # (1, n_obs_steps, state_dim)
+        'action': torch.from_numpy(action_sequence).unsqueeze(0),  # (1, horizon, action_dim)
+        'action_is_pad': torch.zeros(1, horizon, dtype=torch.bool)  # (1, horizon)
+    }
+    
+    # Handle images if present
+    if images:
+        # Create image sequence similar to observations
+        if len(images) >= n_obs_steps:
+            img_sequence = images[:n_obs_steps]
+        else:
+            # Repeat first image to fill n_obs_steps
+            img_sequence = [images[0]] * n_obs_steps
+        
+        # Convert PIL images to tensors
+        img_tensors = []
+        for img in img_sequence:
+            if isinstance(img, Image.Image):
+                # Convert PIL to tensor (C, H, W)
+                import torchvision.transforms.functional as TF
+                img_tensor = TF.to_tensor(img)
+            else:
+                # Assume already a tensor
+                img_tensor = img
+            img_tensors.append(img_tensor)
+        
+        # Stack and add batch dimension: (1, n_obs_steps, C, H, W)
+        batch['observation.image'] = torch.stack(img_tensors).unsqueeze(0)
+    else:
+        # Add dummy images for policies that expect them
+        batch['observation.image'] = torch.zeros(1, n_obs_steps, 3, 84, 84)
+    
+    return batch
+
+
 class TrajectoryDataset(Dataset):
     """PyTorch Dataset for trajectory data with support for images."""
     def __init__(self, trajectories: List[List[Dict[str, Any]]], is_rollout: bool = False):
@@ -84,34 +233,43 @@ class TrajectoryDataset(Dataset):
                 'image': images   # List of PIL images
             }
         else:
-            # Handle state-only observations
-            obs_data = np.array([step[obs_key] for step in trajectory], dtype=np.float32)
-            obs = torch.from_numpy(obs_data)
+            # Handle state-only observations - extract as lists first
+            obs_data = [step[obs_key] for step in trajectory]
+            obs = obs_data  # Keep as list for now, convert in create_lerobot_sequence_batch
 
-        action = np.array([step['action'] for step in trajectory], dtype=np.float32)
+        # Extract actions as list first
+        action_data = [step['action'] for step in trajectory]
+        action = action_data  # Keep as list for now, convert in create_lerobot_sequence_batch
         
         item = {
             'obs': obs,
-            'action': torch.from_numpy(action),
+            'action': action,  # Keep as list
         }
         if self.is_rollout:
-            item['reward'] = trajectory[0].get('reward', 0.0)
+            # For rollouts, use the total episode reward if available, 
+            # otherwise sum up step rewards, or use first step reward as fallback
+            if 'total_reward' in trajectory[0]:
+                item['reward'] = trajectory[0]['total_reward']
+            elif len(trajectory) > 1 and all('reward' in step for step in trajectory):
+                # Sum step rewards to get episode reward
+                item['reward'] = sum(step['reward'] for step in trajectory)
+            else:
+                # Fallback to single step reward
+                item['reward'] = trajectory[0].get('reward', 0.0)
         return item
 
 
 class InfluenceComputer:
-    """Computes influence scores for demonstration ranking using proper CUPID influence functions."""
+    """
+    Computes influence scores for trajectory ranking.
+    
+    Uses proper Hessian-based influence functions to rank demonstrations
+    by their impact on policy performance.
+    """
     
     def __init__(self, config: Config):
-        """
-        Initialize InfluenceComputer with CUPID config.
-        
-        Args:
-            config: CUPID configuration object
-        """
         self.config = config
         self.device = config.device
-        self.damping = config.influence.damping
     
     def compute_influence_scores(
         self,
@@ -120,272 +278,414 @@ class InfluenceComputer:
         eval_rollouts: List[Dict]
     ) -> np.ndarray:
         """
-        Compute proper CUPID influence scores using trajectory-based influence functions.
-        
-        The influence of a training trajectory (ξ) on policy performance is:
-        Ψ_inf(ξ) ≈ - ∇_θ J(π_θ)^T H_bc^(-1) ∇_θ ℓ_traj(ξ)
-        
-        where:
-        - ∇_θ J(π_θ) is the performance gradient, estimated from eval_rollouts.
-        - H_bc is the Hessian of the behavior cloning loss.
-        - ∇_θ ℓ_traj(ξ) is the gradient of the loss for a single training trajectory.
+        Compute influence scores for each training trajectory.
         
         Args:
-            policy: Trained baseline policy.
-            train_trajectories: List of training trajectories.
-            eval_rollouts: List of policy rollouts for performance evaluation.
+            policy: Trained policy
+            train_trajectories: List of training trajectories
+            eval_rollouts: List of evaluation rollouts
             
         Returns:
-            Array of influence scores for each training trajectory.
+            Array of influence scores for each training trajectory
         """
         logger.info(f"Computing trajectory-based influence scores for {len(train_trajectories)} trajectories.")
         
-        policy.eval()
-        
-        # Step 1: Compute Hessian of behavior cloning loss using training trajectories.
+        # Step 1: Compute Hessian inverse
         logger.info("Step 1: Computing Hessian of behavior cloning loss...")
-        hessian_inv_diag = self._compute_hessian_inverse(policy, train_trajectories)
+        hessian_inv = self._compute_hessian_inverse(policy, train_trajectories)
         
-        # Step 2: Compute performance gradient from evaluation rollouts.
+        # Step 2: Compute performance gradient
         logger.info("Step 2: Computing performance gradient from rollouts...")
-        performance_gradient = self._compute_performance_gradient(policy, eval_rollouts)
+        perf_grad = self._compute_performance_gradient(policy, eval_rollouts)
         
-        # Step 3: Compute influence for each training trajectory.
+        # Step 3: Compute influence for each training trajectory
         logger.info("Step 3: Computing influence score for each training trajectory...")
-        
-        influence_scores = []
-        train_dataset = TrajectoryDataset(train_trajectories)
-        train_loader = DataLoader(
-            train_dataset, 
-            batch_size=1,  # Process one trajectory at a time
-            collate_fn=influence_collate_fn
+        influence_scores = self._compute_trajectory_influences(
+            policy, train_trajectories, hessian_inv, perf_grad
         )
-
-        # OPTIMIZED: Pre-compute parameter info to avoid repeated operations
-        all_params = list(policy.parameters())
-        param_shapes = [p.shape for p in all_params]
-        param_numel = [p.numel() for p in all_params]
-        total_params = sum(param_numel)
-        
-        for batch in tqdm(train_loader, desc="Computing trajectory influence"):
-            obs = batch['obs']
-            action = batch['action'].to(self.device)  # Remove [0] - keep full trajectory
-            
-            # Handle different observation formats
-            if isinstance(obs, dict):
-                # Image+state observations - convert lists to tensors
-                # obs['state'] is a list of state arrays, convert to proper tensor
-                states_array = np.array(obs['state'], dtype=np.float32)  # Shape: [seq_len, state_dim]
-                states_tensor = torch.from_numpy(states_array).to(self.device)
-                obs_input = {
-                    'state': states_tensor,
-                    'image': obs['image']  # List of PIL images
-                }
-            else:
-                # State-only observations
-                obs_input = obs.to(self.device)  # Remove [0] - keep full trajectory
-
-            # Compute gradient of the loss for this training trajectory
-            policy.zero_grad()
-            loss = policy.get_loss(obs_input, action)
-            
-            # OPTIMIZED: Get gradients more efficiently
-            traj_grad = torch.autograd.grad(loss, all_params, retain_graph=False, allow_unused=True)
-            
-            # OPTIMIZED: Handle unused parameters with vectorized operations
-            grad_vectors = []
-            for i, grad in enumerate(traj_grad):
-                if grad is not None:
-                    grad_vectors.append(grad.view(-1))
-                else:
-                    # Parameter was not used, add zero gradient of the correct size
-                    grad_vectors.append(torch.zeros(param_numel[i], device=self.device))
-            
-            traj_grad_vector = torch.cat(grad_vectors)
-
-            # Compute influence: - (perf_grad^T * H_inv * traj_grad)
-            influence = -torch.sum(performance_gradient * hessian_inv_diag * traj_grad_vector)
-            influence_scores.append(influence.item())
-            
-        influence_scores = np.array(influence_scores)
-        if influence_scores.max() > influence_scores.min():
-            influence_scores = (influence_scores - influence_scores.min()) / (influence_scores.max() - influence_scores.min())
         
         logger.info("✅ Trajectory-based influence computation complete.")
         return influence_scores
-
-    def _compute_performance_gradient(self, policy: DiffusionPolicy, rollouts: List[Dict]) -> torch.Tensor:
-        """Computes the REINFORCE-style performance gradient from evaluation rollouts."""
-        if not rollouts:
-            raise ValueError("Evaluation rollouts cannot be empty for performance gradient computation.")
-
-        # Re-format rollouts to be a list of trajectories (list of steps)
-        eval_trajectories = [r['trajectory'] for r in rollouts]
+    
+    def _compute_trajectory_influences(
+        self,
+        policy: DiffusionPolicy,
+        trajectories: List[List[Dict]],
+        hessian_inv: torch.Tensor,
+        perf_grad: torch.Tensor
+    ) -> np.ndarray:
+        """Compute influence score for each trajectory."""
+        # Sample trajectories for influence computation
+        config = self.config.influence
+        max_trajectories = min(len(trajectories), config.max_hessian_samples or len(trajectories))
+        sample_size = min(max_trajectories, int(len(trajectories) * config.hessian_sample_ratio))
         
-        # Add the episode reward to each step for easy access in the dataset
-        for i, traj in enumerate(eval_trajectories):
-            # FIXED: Use total_reward instead of reward to get the full episode reward
-            reward = rollouts[i].get('total_reward', rollouts[i].get('reward', 0.0))
-            for step in traj:
-                step['reward'] = reward
-
-        total_reward_weighted_grad = None
+        # Select trajectories
+        if sample_size < len(trajectories):
+            indices = np.random.choice(len(trajectories), sample_size, replace=False)
+            selected_trajectories = [trajectories[i] for i in indices]
+        else:
+            selected_trajectories = trajectories
+            indices = np.arange(len(trajectories))
         
-        # OPTIMIZED: Pre-compute parameter info for efficiency
+        # Create dataset and dataloader
+        train_dataset = TrajectoryDataset(selected_trajectories, is_rollout=False)
+        train_loader = DataLoader(train_dataset, batch_size=1, shuffle=False, collate_fn=influence_collate_fn)
+        
+        # Get all trainable parameters
         all_params = list(policy.parameters())
-        param_numel = [p.numel() for p in all_params]
         
-        rollout_dataset = TrajectoryDataset(eval_trajectories, is_rollout=True)
-        rollout_loader = DataLoader(
-            rollout_dataset, 
-            batch_size=1,
-            collate_fn=influence_collate_fn
-        )
+        influence_scores = []
+        
+        for batch in tqdm(train_loader, desc="Computing trajectory influence"):
+            obs = batch['obs']
+            action = batch['action']  # Already a list, no need to convert
+            
+            # Create proper LeRobot sequence batch from trajectory data
+            if isinstance(obs, dict):
+                # Convert trajectory data to proper format
+                trajectory_data = []
+                states = obs['state']  # List of state arrays
+                images = obs['image']  # List of PIL images
+                actions = action  # Already a list
+                
+                for i, (state, img, act) in enumerate(zip(states, images, actions)):
+                    step = {
+                        'observation.state': state,
+                        'observation.image': img,
+                        'action': act
+                    }
+                    trajectory_data.append(step)
+                
+                lerobot_batch = create_lerobot_sequence_batch(trajectory_data, self.config)
+            else:
+                # State-only trajectory
+                trajectory_data = []
+                states = obs  # Already a list
+                actions = action  # Already a list
+                
+                for i, (state, act) in enumerate(zip(states, actions)):
+                    step = {
+                        'observation.state': state,
+                        'action': act
+                    }
+                    trajectory_data.append(step)
+                
+                lerobot_batch = create_lerobot_sequence_batch(trajectory_data, self.config)
+            
+            # Move batch to device
+            lerobot_batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v 
+                           for k, v in lerobot_batch.items()}
+
+            # Compute gradient of the loss for this training trajectory
+            policy.zero_grad()
+            policy.train()  # Ensure policy is in training mode
+            
+            # Use LeRobot's forward method which returns (loss, outputs)
+            loss, _ = policy.forward(lerobot_batch)
+            
+            # OPTIMIZED: Get gradients more efficiently - only compute gradients for parameters that require grad
+            trainable_params = [p for p in all_params if p.requires_grad]
+            traj_grad = torch.autograd.grad(loss, trainable_params, retain_graph=False, allow_unused=True)
+            
+            # OPTIMIZED: Handle unused parameters with vectorized operations
+            grad_vectors = []
+            for grad in traj_grad:
+                if grad is not None:
+                    grad_vectors.append(grad.view(-1))
+                else:
+                    # Handle unused parameters - shouldn't happen with trainable_params filter
+                    logger.warning("Encountered unused parameter in gradient computation")
+            
+            if not grad_vectors:
+                logger.warning("No gradients computed for trajectory")
+                influence_scores.append(0.0)
+                continue
+            
+            traj_grad_flat = torch.cat(grad_vectors)
+            
+            # Compute influence: -grad_train^T * H^-1 * grad_perf
+            # Since hessian_inv is diagonal, H^-1 * grad_perf is element-wise multiplication
+            influence = -torch.dot(traj_grad_flat, hessian_inv * perf_grad)
+            influence_scores.append(influence.item())
+        
+        # Convert to full-size array if we sampled
+        if sample_size < len(trajectories):
+            full_scores = np.zeros(len(trajectories))
+            full_scores[indices] = influence_scores
+            return full_scores
+        else:
+            return np.array(influence_scores)
+    
+    def _compute_performance_gradient(self, policy: DiffusionPolicy, rollouts: List[Dict]) -> torch.Tensor:
+        """
+        Compute the gradient of performance with respect to policy parameters.
+        
+        Uses the policy gradient theorem: ∇J(θ) = E[∇ log π(a|s) * R]
+        """
+        # Sample rollouts for performance gradient computation
+        config = self.config.influence
+        max_rollouts = min(len(rollouts), config.max_eval_samples or len(rollouts))
+        sample_size = min(max_rollouts, int(len(rollouts) * config.eval_sample_ratio))
+        
+        if sample_size < len(rollouts):
+            # Use indices instead of rollouts directly to avoid numpy array issues
+            indices = np.random.choice(len(rollouts), sample_size, replace=False)
+            sampled_rollouts = [rollouts[i] for i in indices]
+        else:
+            sampled_rollouts = rollouts
+        
+        # Convert rollouts to trajectory format for dataset
+        rollout_trajectories = []
+        for rollout in sampled_rollouts:
+            trajectory = rollout.get('trajectory', [])
+            if trajectory:
+                rollout_trajectories.append(trajectory)
+        
+        if not rollout_trajectories:
+            logger.warning("No valid trajectories found in rollouts")
+            # Return zero gradient
+            all_params = [p for p in policy.parameters() if p.requires_grad]
+            total_params = sum(p.numel() for p in all_params)
+            return torch.zeros(total_params, device=self.device)
+        
+        # Create dataset and dataloader for rollouts
+        rollout_dataset = TrajectoryDataset(rollout_trajectories, is_rollout=True)
+        rollout_loader = DataLoader(rollout_dataset, batch_size=1, shuffle=False, collate_fn=influence_collate_fn)
+        
+        # Get all trainable parameters
+        all_params = [p for p in policy.parameters() if p.requires_grad]
+        
+        # Accumulate gradients
+        total_grad = None
+        total_weight = 0.0
 
         for batch in tqdm(rollout_loader, desc="Computing performance gradient"):
-            obs = batch['obs'].to(self.device)  # Rollouts are state-only, remove [0]
-            action = batch['action'].to(self.device)  # Remove [0] - keep full trajectory
+            obs = batch['obs']  # Already a list
+            action = batch['action']  # Already a list  
             reward = batch['reward']
             
             # Handle reward - it might be a tensor or already a float
             if hasattr(reward, 'item'):
                 reward = reward.item()
+            
+            # CRITICAL FIX: Convert reward to binary return as required by CUPID
+            # R(τ) ∈ {+1, -1} based on success/failure, not actual reward values
+            # For PushT task, success is typically indicated by high reward (>= 1.0)
+            # or by checking if the task was completed successfully
+            if reward >= 1.0:  # High reward indicates success
+                binary_return = +1.0
+            elif reward > 0.1:  # Some progress but not full success
+                binary_return = +1.0  # Still treat as positive for CUPID
+            else:  # Very low or negative reward indicates failure
+                binary_return = -1.0
+            
+            logger.debug(f"Rollout reward: {reward:.3f} → Binary return: {binary_return:+.0f}")
+
+            # Create proper sequence batch from rollout trajectory
+            trajectory_data = []
+            states = obs  # Already a list
+            actions = action  # Already a list
+            
+            for i, (state, act) in enumerate(zip(states, actions)):
+                step = {
+                    'observation.state': state,
+                    'action': act
+                }
+                trajectory_data.append(step)
+            
+            lerobot_batch = create_lerobot_sequence_batch(trajectory_data, self.config)
+            
+            # Move to device
+            lerobot_batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v 
+                           for k, v in lerobot_batch.items()}
 
             # The gradient of the log-probability of a trajectory is the sum of step-wise log-prob gradients.
             # ∇_θ log p(τ) = Σ_t ∇_θ log π(a_t|s_t)
             # We approximate log π(a|s) with the negative loss: -loss(s,a)
             policy.zero_grad()
-            loss = policy.get_loss(obs, action)
+            policy.train()  # Ensure policy is in training mode
             
-            # We want gradient of log-prob, which is grad of -loss.
-            # OPTIMIZED: Get gradients more efficiently
-            traj_log_prob_grad = torch.autograd.grad(-loss, all_params, retain_graph=False, allow_unused=True)
+            # Use LeRobot's forward method which returns (loss, outputs)
+            loss, _ = policy.forward(lerobot_batch)
+            
+            # Compute gradient of negative log probability (positive gradient for likelihood)
+            neg_log_prob_grad = torch.autograd.grad(-loss, all_params, retain_graph=False, allow_unused=True)
             
             # OPTIMIZED: Handle unused parameters with vectorized operations
             grad_vectors = []
-            for i, grad in enumerate(traj_log_prob_grad):
+            for grad in neg_log_prob_grad:
                 if grad is not None:
                     grad_vectors.append(grad.view(-1))
                 else:
-                    # Parameter was not used, add zero gradient of the correct size
-                    grad_vectors.append(torch.zeros(param_numel[i], device=self.device))
+                    logger.warning("Encountered unused parameter in performance gradient computation")
             
-            grad_vector = torch.cat(grad_vectors)
+            if not grad_vectors:
+                logger.warning("No gradients computed for rollout")
+                continue
             
-            if total_reward_weighted_grad is None:
-                total_reward_weighted_grad = torch.zeros_like(grad_vector)
-
-            total_reward_weighted_grad += grad_vector * reward
+            rollout_grad_flat = torch.cat(grad_vectors)
+            
+            # Weight by binary return (CUPID requirement: R(τ) ∈ {+1, -1})
+            weighted_grad = binary_return * rollout_grad_flat
+            
+            if total_grad is None:
+                total_grad = weighted_grad
+            else:
+                total_grad += weighted_grad
+            
+            total_weight += 1.0
         
-        # Average over the number of rollouts
-        performance_gradient = total_reward_weighted_grad / len(rollouts)
-        logger.info(f"✅ Computed performance gradient over {len(rollouts)} rollouts.")
-        return performance_gradient
-
+        if total_grad is None or total_weight == 0:
+            logger.warning("No valid gradients computed for performance")
+            total_params = sum(p.numel() for p in all_params)
+            return torch.zeros(total_params, device=self.device)
+        
+        # Average the gradients
+        perf_grad = total_grad / total_weight
+        
+        logger.info("✅ Computed performance gradient over {} rollouts.".format(int(total_weight)))
+        return perf_grad
+    
     def _compute_hessian_inverse(self, policy: DiffusionPolicy, trajectories: List[List[Dict]]) -> torch.Tensor:
-        """Computes diagonal approximation of inverse Hessian using trajectories."""
-        # OPTIMIZED: Pre-compute parameter info and allocate tensors efficiently
-        all_params = list(policy.parameters())
-        param_numel = [p.numel() for p in all_params]
-        n_params = sum(param_numel)
-        hessian_diag = torch.zeros(n_params, device=self.device)
+        """
+        Compute the inverse Hessian of the behavior cloning loss.
         
-        # IMPROVED: Use proportional sampling with smart selection
-        num_hessian_samples = self.config.get_hessian_sample_count(len(trajectories))
+        Uses diagonal approximation for computational efficiency.
+        """
+        # Sample trajectories for Hessian computation
+        config = self.config.influence
+        max_trajectories = min(len(trajectories), config.max_hessian_samples or len(trajectories))
+        sample_size = min(max_trajectories, int(len(trajectories) * config.hessian_sample_ratio))
         
-        if num_hessian_samples >= len(trajectories):
-            # Use all trajectories if we need more than available
-            logger.info(f"Using all {len(trajectories)} trajectories for Hessian computation")
-            hessian_trajectories = trajectories
+        logger.info(f"Using {sample_size}/{len(trajectories)} trajectories ({sample_size/len(trajectories):.1%}) for Hessian computation")
+        
+        if sample_size < len(trajectories):
+            # Use indices instead of trajectories directly to avoid numpy array issues
+            indices = np.random.choice(len(trajectories), sample_size, replace=False)
+            sampled_trajectories = [trajectories[i] for i in indices]
         else:
-            # Randomly sample without replacement to avoid duplicates
-            logger.info(f"Using {num_hessian_samples}/{len(trajectories)} trajectories ({num_hessian_samples/len(trajectories)*100:.1f}%) for Hessian computation")
-            sample_indices = np.random.choice(len(trajectories), num_hessian_samples, replace=False)
-            hessian_trajectories = [trajectories[i] for i in sample_indices]
+            sampled_trajectories = trajectories
         
-        hessian_dataset = TrajectoryDataset(hessian_trajectories)
-        hessian_loader = DataLoader(
-            hessian_dataset, 
-            batch_size=1,
-            collate_fn=influence_collate_fn
-        )
+        # Create dataset and dataloader
+        hessian_dataset = TrajectoryDataset(sampled_trajectories, is_rollout=False)
+        hessian_loader = DataLoader(hessian_dataset, batch_size=1, shuffle=False, collate_fn=influence_collate_fn)
+        
+        # Get all trainable parameters
+        all_params = [p for p in policy.parameters() if p.requires_grad]
+        trainable_params = all_params  # Already filtered
+        
+        # Initialize diagonal Hessian accumulator
+        total_params = sum(p.numel() for p in trainable_params)
+        diag_hessian = torch.zeros(total_params, device=self.device)
+        
+        num_samples = 0
 
         for batch in tqdm(hessian_loader, desc="Computing diagonal Hessian"):
             obs = batch['obs']
-            action = batch['action'].to(self.device)  # Remove [0] - keep full trajectory
+            action = batch['action']  # Already a list, no need to convert
             
-            # Handle different observation formats
+            # Create proper LeRobot sequence batch from trajectory data
             if isinstance(obs, dict):
-                # Image+state observations - convert lists to tensors
-                # obs['state'] is a list of state arrays, convert to proper tensor
-                states_array = np.array(obs['state'], dtype=np.float32)  # Shape: [seq_len, state_dim]
-                states_tensor = torch.from_numpy(states_array).to(self.device)
-                obs_input = {
-                    'state': states_tensor,
-                    'image': obs['image']  # List of PIL images
-                }
+                # Convert trajectory data to proper format
+                trajectory_data = []
+                states = obs['state']  # List of state arrays
+                images = obs['image']  # List of PIL images
+                actions = action  # Already a list
+                
+                for i, (state, img, act) in enumerate(zip(states, images, actions)):
+                    step = {
+                        'observation.state': state,
+                        'observation.image': img,
+                        'action': act
+                    }
+                    trajectory_data.append(step)
+                
+                lerobot_batch = create_lerobot_sequence_batch(trajectory_data, self.config)
             else:
-                # State-only observations
-                obs_input = obs.to(self.device)  # Remove [0] - keep full trajectory
+                # State-only trajectory
+                trajectory_data = []
+                states = obs  # Already a list
+                actions = action  # Already a list
+                
+                for i, (state, act) in enumerate(zip(states, actions)):
+                    step = {
+                        'observation.state': state,
+                        'action': act
+                    }
+                    trajectory_data.append(step)
+                
+                lerobot_batch = create_lerobot_sequence_batch(trajectory_data, self.config)
+            
+            # Move batch to device
+            lerobot_batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v 
+                           for k, v in lerobot_batch.items()}
             
             policy.zero_grad()
-            loss = policy.get_loss(obs_input, action)
+            policy.train()  # Ensure policy is in training mode
+            
+            # Use LeRobot's forward method which returns (loss, outputs)
+            loss, _ = policy.forward(lerobot_batch)
             
             if torch.isnan(loss) or torch.isinf(loss):
                 continue
             
-            # OPTIMIZED: Get gradients more efficiently
-            grad = torch.autograd.grad(loss, all_params, create_graph=False, allow_unused=True)
+            # OPTIMIZED: Get gradients more efficiently - only compute gradients for parameters that require grad
+            grad = torch.autograd.grad(loss, trainable_params, create_graph=False, allow_unused=True)
             
             # OPTIMIZED: Handle unused parameters with vectorized operations
             grad_vectors = []
-            for i, g in enumerate(grad):
+            for g in grad:
                 if g is not None:
                     grad_vectors.append(g.view(-1))
                 else:
-                    # Parameter was not used, add zero gradient of the correct size
-                    grad_vectors.append(torch.zeros(param_numel[i], device=self.device))
+                    logger.warning("Encountered unused parameter in Hessian computation")
             
-            grad_vector = torch.cat(grad_vectors)
-            hessian_diag += grad_vector ** 2
+            if not grad_vectors:
+                logger.warning("No gradients computed for Hessian sample")
+                continue
+            
+            grad_flat = torch.cat(grad_vectors)
+            
+            # Diagonal Hessian approximation: H_ii ≈ (∇_i L)^2
+            diag_hessian += grad_flat ** 2
+            num_samples += 1
         
-        hessian_diag /= num_hessian_samples
-        hessian_diag += self.damping
+        if num_samples == 0:
+            logger.warning("No valid samples for Hessian computation")
+            return torch.ones(total_params, device=self.device) * (1.0 / self.config.influence.damping)
         
-        # Handle numerical issues
-        if torch.any(hessian_diag <= 0):
-            hessian_diag = torch.clamp(hessian_diag, min=self.damping * 10)
+        # Average and add damping
+        diag_hessian = diag_hessian / num_samples + self.config.influence.damping
         
-        hessian_inv_diag = 1.0 / hessian_diag
+        # Compute inverse (element-wise for diagonal) - keep as vector, not full matrix
+        hessian_inv_diag = 1.0 / diag_hessian
         
-        logger.info(f"✅ Computed diagonal Hessian inverse using {num_hessian_samples} trajectories.")
-        return hessian_inv_diag
-    
-    def select_demonstrations(
-        self,
-        influence_scores: np.ndarray,
-        dataset_size: int
-    ) -> Tuple[np.ndarray, np.ndarray]:
+        logger.info(f"✅ Computed diagonal Hessian inverse using {num_samples} trajectories.")
+        return hessian_inv_diag 
+
+    def select_demonstrations(self, influence_scores: np.ndarray, total_demos: int) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Select demonstrations by influence scores using configured selection ratio.
+        Select high-impact demonstrations based on influence scores.
         
         Args:
-            influence_scores: Array of influence scores for each trajectory
-            dataset_size: Total number of trajectories
+            influence_scores: Array of influence scores for each demonstration
+            total_demos: Total number of demonstrations available
             
         Returns:
             Tuple of (selected_indices, selected_scores)
         """
-        num_to_select = self.config.get_selection_count(dataset_size)
-        selection_ratio = self.config.influence.selection_ratio
+        # Calculate number of demonstrations to select
+        target_count = self.config.get_selection_count(total_demos)
         
-        logger.info(f"Selecting {num_to_select} demonstrations ({selection_ratio*100:.1f}% of {dataset_size})")
-        
-        # Sort by influence score (descending - higher influence is better)
+        # Sort by influence score (highest first)
         sorted_indices = np.argsort(influence_scores)[::-1]
         
-        selected_indices = sorted_indices[:num_to_select]
+        # Select top demonstrations
+        selected_indices = sorted_indices[:target_count]
         selected_scores = influence_scores[selected_indices]
         
-        logger.info(f"Selected {len(selected_indices)} demonstrations with score range: [{selected_scores.min():.4f}, {selected_scores.max():.4f}]")
+        logger.info(f"Selected {len(selected_indices)} demonstrations with influence scores "
+                   f"from {selected_scores.min():.4f} to {selected_scores.max():.4f}")
+        
         return selected_indices, selected_scores 

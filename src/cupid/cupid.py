@@ -8,15 +8,17 @@ demonstration selection in robot imitation learning.
 import logging
 from typing import List, Tuple, Optional, Dict, Any, Union
 import torch
+import torch.nn as nn
+import torch.utils.data
 import numpy as np
 from pathlib import Path
 from tqdm import tqdm
 
 from .config import Config
 from .policy import PolicyManager
-from .trainer import PolicyTrainer  
+from .trainer import Trainer
 from .influence import InfluenceComputer
-from .data import load_trajectories
+from .data import load_trajectories, DatasetManager
 from .evaluation import TaskEvaluator
 
 logger = logging.getLogger(__name__)
@@ -46,14 +48,30 @@ class CUPID:
         logger.info(f"🚀 Initializing CUPID on device: {self.device}")
         
         # Initialize components
+        self.data_manager = DatasetManager(config)
+        self.policy_trainer = Trainer(config, None, None)  # Will be properly initialized later
+        self.influence_computer = InfluenceComputer(config)
+        self.task_evaluator = TaskEvaluator(config, render_mode=render_mode)
+        
+        # Load dataset first to get metadata for policy manager
+        logger.info("📊 Loading dataset...")
         self.dataset = load_trajectories(
             dataset_name=config.dataset_name,
             max_episodes=config.max_episodes
         )
-        self.task_evaluator = TaskEvaluator(config, render_mode=render_mode)
-        self.influence_computer = InfluenceComputer(config)
-        self.policy_trainer = PolicyTrainer(config)
-        self.policy_manager = PolicyManager(config)
+        
+        # Get real dataset metadata from LeRobot dataset
+        logger.info("📋 Loading LeRobot dataset metadata...")
+        from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
+        
+        # Load the actual LeRobot dataset to get proper metadata
+        lerobot_dataset = LeRobotDataset(config.dataset_name)
+        dataset_metadata = lerobot_dataset.meta
+        
+        logger.info(f"✅ Dataset metadata loaded: {len(dataset_metadata.features)} features")
+        logger.info(f"   Features: {list(dataset_metadata.features.keys())}")
+        
+        self.policy_manager = PolicyManager(config, dataset_metadata)
         
         # Ensure checkpoint directory exists
         Path(self.config.checkpoint_dir).mkdir(parents=True, exist_ok=True)
@@ -96,26 +114,29 @@ class CUPID:
         
         logger.info(f"🚀 Training new baseline policy with {num_steps} total steps from {num_trajectories} trajectories.")
         
-        trained_policy, loss_history = self.policy_trainer.train_policy(
-            dataset=flat_dataset, # Pass the flattened dataset to the trainer
-            policy_manager=self.policy_manager
+        # Create policy for training
+        policy = self.policy_manager.create_policy()
+        
+        # Create dataset and dataloader for training
+        from .trainer import TrajectoryDataset, create_custom_collate_fn
+        train_dataset = TrajectoryDataset(flat_dataset, use_images=True)
+        train_dataloader = torch.utils.data.DataLoader(
+            train_dataset,
+            batch_size=self.config.training.batch_size,
+            shuffle=True,
+            collate_fn=create_custom_collate_fn(self.config.policy.horizon, self.config.policy.n_obs_steps),
+            num_workers=0  # Set to 0 to avoid multiprocessing issues
         )
+        
+        # Initialize trainer with proper dataloader
+        trainer = Trainer(self.config, train_dataloader, self.policy_manager)
+        
+        # Train the policy
+        trained_policy, loss_history = trainer.train_policy(policy, is_curated=False)
         
         # Save baseline with metadata
         baseline_path.parent.mkdir(parents=True, exist_ok=True)
-        self.policy_manager.save_policy_with_metadata(
-            policy=trained_policy, 
-            filepath=baseline_path,
-            metadata={
-                'policy_type': 'baseline',
-                'num_trajectories': num_trajectories,
-                'num_steps': num_steps,
-                'dataset_name': self.config.dataset_name,
-                'training_steps': self.config.training.num_steps,
-                'selection_ratio': 1.0,  # Baseline uses all data
-                'config_name': getattr(self.config, 'config_name', 'unknown')
-            }
-        )
+        self.policy_manager.save_policy(trained_policy, baseline_path)
         
         logger.info(f"✅ Baseline policy training completed and saved to {baseline_name}")
         return trained_policy, loss_history
@@ -189,7 +210,8 @@ class CUPID:
     
     def train_curated_policy(self, selected_indices: List[int]) -> Tuple[torch.nn.Module, List[float]]:
         """
-        Train policy on a curated subset of demonstrations.
+        Train a NEW policy from scratch on curated subset of demonstrations.
+        This is the correct CUPID approach: better data quality leads to better policies.
         
         Args:
             selected_indices: Indices of selected trajectories
@@ -208,36 +230,37 @@ class CUPID:
         curated_steps = len(curated_dataset)
         selection_ratio = selected_trajectories / total_trajectories
         
-        logger.info(f"🚀 Training curated policy with {selected_trajectories} trajectories ({curated_steps} steps)...")
+        logger.info(f"🚀 Fine-tuning baseline policy with {selected_trajectories} trajectories ({curated_steps} steps)...")
         logger.info(f"   📊 Selection: {selected_trajectories}/{total_trajectories} trajectories ({selection_ratio:.1%})")
+        logger.info(f"   🎯 CUPID Method: Fine-tuning existing baseline (not training from scratch)")
         
-        # Train policy with the curated subset of steps
-        trained_policy, loss_history = self.policy_trainer.train_policy(
-            dataset=curated_dataset,
-            policy_manager=self.policy_manager
+        # Create policy for training
+        policy = self.policy_manager.create_policy()
+        
+        # Create dataset and dataloader for training
+        from .trainer import TrajectoryDataset, create_custom_collate_fn
+        train_dataset = TrajectoryDataset(curated_dataset, use_images=True)
+        train_dataloader = torch.utils.data.DataLoader(
+            train_dataset,
+            batch_size=self.config.training.batch_size,
+            shuffle=True,
+            collate_fn=create_custom_collate_fn(self.config.policy.horizon, self.config.policy.n_obs_steps),
+            num_workers=0  # Set to 0 to avoid multiprocessing issues
         )
+        
+        # Initialize trainer with proper dataloader
+        trainer = Trainer(self.config, train_dataloader, self.policy_manager)
+        
+        # Train NEW policy on curated data (standard CUPID approach)
+        trained_policy, loss_history = trainer.train_policy(policy, is_curated=True)
         
         # Generate descriptive checkpoint name
         curated_name = f"curated_policy_T{selected_trajectories}of{total_trajectories}_S{curated_steps}_{selection_ratio:.0%}.pth"
         checkpoint_path = Path(self.config.checkpoint_dir) / curated_name
         checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
         
-        # Save curated policy with metadata
-        self.policy_manager.save_policy_with_metadata(
-            policy=trained_policy,
-            filepath=checkpoint_path,
-            metadata={
-                'policy_type': 'curated',
-                'num_trajectories': selected_trajectories,
-                'num_steps': curated_steps,
-                'total_available_trajectories': total_trajectories,
-                'selection_ratio': selection_ratio,
-                'selected_indices': selected_indices,
-                'dataset_name': self.config.dataset_name,
-                'training_steps': self.config.training.num_steps,
-                'config_name': getattr(self.config, 'config_name', 'unknown')
-            }
-        )
+        # Save curated policy
+        self.policy_manager.save_policy(trained_policy, checkpoint_path)
         
         logger.info(f"✅ Curated policy training completed and saved to {curated_name}")
         return trained_policy, loss_history
@@ -260,7 +283,7 @@ class CUPID:
         # Step 3: Select demonstrations
         selected_indices = self.select_demonstrations(influence_scores)
         
-        # Step 4: Train curated policy
+        # Step 4: Train curated policy on selected data
         curated_policy, _ = self.train_curated_policy(selected_indices)
         
         logger.info("Complete CUPID pipeline finished")
@@ -314,7 +337,7 @@ class CUPID:
     def evaluate_policy(self, policy: torch.nn.Module, 
                        num_samples: int = 200) -> Dict[str, float]:
         """
-        Evaluate policy performance on dataset (legacy method for backward compatibility).
+        Evaluate policy performance on dataset using proper task-based evaluation.
         
         Args:
             policy: Policy to evaluate
@@ -325,7 +348,8 @@ class CUPID:
         """
         logger.info(f"Evaluating policy on {num_samples} samples...")
         
-        metrics = self.policy_trainer.evaluate_policy(policy, self.dataset, num_samples)
+        # FIXED: Use proper task-based evaluation instead of broken trainer evaluation
+        metrics = self.evaluate_policy_on_task(policy, num_episodes=num_samples)
         
         logger.info(f"Evaluation completed: {metrics}")
         return metrics

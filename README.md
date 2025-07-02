@@ -44,6 +44,21 @@ uv sync
 pip install -e .
 ```
 
+### 📓 Interactive Jupyter Notebook (Recommended)
+
+**Start with the interactive notebook for a guided walkthrough:**
+
+```bash
+# Launch Jupyter and open the demo notebook
+jupyter lab cupid_pipeline_demo.ipynb
+```
+
+The notebook provides:
+- **Step-by-step explanation** of each pipeline component
+- **Interactive visualizations** of influence scores and results
+- **Configurable testing** (micro_test → quick_demo → full dataset)
+- **Real-time plots** showing training curves and performance comparisons
+
 ### Basic Usage
 
 ```python
@@ -66,11 +81,11 @@ results = cupid.compare_policies(baseline_policy, curated_policy)
 ### Command Line Interface
 
 ```bash
-# Quick demo (1000 episodes, 15k training steps)
-uv run python example_workflow.py --config quick_demo --render
+# Minimal test (5 episodes, 100 training steps)
+uv run python example_workflow.py --config micro_test --max-episodes 5
 
-# Debug mode (50 episodes, 100 training steps)
-uv run python example_workflow.py --config debug --render
+# Quick demo (1000 episodes, optimized for speed)
+uv run python example_workflow.py --config quick_demo --render
 
 # Custom configuration
 uv run python example_workflow.py --max-episodes 2000 --render
@@ -84,13 +99,16 @@ uv run python example_workflow.py --config default
 ### Pre-built Configurations
 
 ```python
-# Debug: Ultra-fast for testing (50 demos, 100 steps)
-config = Config.debug()
+# Micro Test: Ultra-minimal for debugging (10 demos, 100 steps)
+config = Config.micro_test(max_episodes=10)
 
-# Quick Demo: Balanced speed/quality (1000 demos, 15k steps)  
+# Smoke Test: Small test for basic functionality (20 demos, 500 steps)
+config = Config.smoke_test(max_episodes=20)
+
+# Quick Demo: Balanced speed/quality (1000 demos, optimized)  
 config = Config.quick_demo()
 
-# Default: Production quality (all demos, 20k steps)
+# Default: Production quality (all demos, full training)
 config = Config.default()
 
 # Custom: Optimized for specific demo count
@@ -235,18 +253,21 @@ Where:
 ```
 cupid/
 ├── src/cupid/
-│   ├── __init__.py          # Main CUPID class
-│   ├── config.py            # Configuration management
-│   ├── policy.py            # Diffusion policy implementation
-│   ├── trainer.py           # Training utilities
-│   ├── influence.py         # Influence function computation
-│   ├── evaluation.py        # Task evaluation & rendering
-│   ├── data.py             # Dataset handling
-│   ├── lerobot_env.py      # LeRobot environment integration
-│   └── visualization.py    # Result visualization
-├── example_workflow.py      # Complete example
-├── requirements.txt         # Dependencies
-└── README.md               # This file
+│   ├── __init__.py              # Main CUPID class
+│   ├── config.py                # Configuration management
+│   ├── cupid.py                 # Core CUPID orchestrator
+│   ├── policy.py                # Diffusion policy implementation
+│   ├── trainer.py               # Training utilities
+│   ├── influence.py             # Influence function computation
+│   ├── evaluation.py            # Task evaluation & rendering
+│   ├── data.py                  # Dataset handling
+│   ├── lerobot_integration.py   # LeRobot environment integration
+│   ├── visualization.py         # Result visualization
+│   └── checkpoint_utils.py      # Checkpoint management
+├── cupid_pipeline_demo.ipynb    # 📓 Interactive demonstration notebook
+├── example_workflow.py          # Complete CLI example
+├── pyproject.toml               # Project configuration
+└── README.md                    # This file
 ```
 
 ### Dependencies
@@ -266,11 +287,14 @@ cupid/
 ### Testing
 
 ```bash
-# Run basic functionality test
-uv run python example_workflow.py --config debug
+# Quick functionality test (5 trajectories, ~30 seconds)
+uv run python example_workflow.py --config micro_test --max-episodes 5
 
-# Run with rendering
-uv run python example_workflow.py --config debug --render
+# Interactive notebook test
+jupyter lab cupid_pipeline_demo.ipynb
+
+# Smoke test with rendering
+uv run python example_workflow.py --config smoke_test --render
 
 # Full test suite (if available)
 uv run pytest tests/
@@ -316,13 +340,21 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🔄 Changelog
 
-### v0.1.0 (Current)
+### v0.2.0 (Current)
+- ✅ **New**: Interactive Jupyter notebook with step-by-step pipeline walkthrough
+- ✅ **New**: `micro_test` configuration for rapid debugging (10 demos, 100 steps)
+- ✅ **Enhanced**: Improved configuration system with smoke_test, quick_demo presets
+- ✅ **Enhanced**: Better checkpoint management and policy reuse
+- ✅ **Enhanced**: Comprehensive visualization with multi-panel plots
+- ✅ **Fixed**: LeRobot integration stability and error handling
+- ✅ **Fixed**: Cross-platform device detection and fallbacks
+
+### v0.1.0
 - ✅ Initial release with full CUPID pipeline
 - ✅ Cross-platform support (Linux/macOS/Windows)
 - ✅ Device support (CPU/CUDA/MPS)
 - ✅ Interactive visualization with pygame
 - ✅ Production-ready error handling
-- ✅ Comprehensive documentation
 
 ---
 

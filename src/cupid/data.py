@@ -16,13 +16,13 @@ from .config import Config
 logger = logging.getLogger(__name__)
 
 
-def load_trajectories(dataset_name: str, max_episodes: Optional[int] = None) -> List[List[Dict[str, Any]]]:
+def load_trajectories(dataset_name: str, max_demonstrations: Optional[int] = None) -> List[List[Dict[str, Any]]]:
     """
     Load a dataset from HuggingFace and group it into trajectories.
 
     Args:
         dataset_name: The name of the dataset on HuggingFace Hub.
-        max_episodes: The maximum number of episodes to load. If None, all are loaded.
+        max_demonstrations: The maximum number of demonstrations to load. If None, all are loaded.
 
     Returns:
         A list of trajectories, where each trajectory is a list of steps.
@@ -30,13 +30,13 @@ def load_trajectories(dataset_name: str, max_episodes: Optional[int] = None) -> 
     logger.info(f"Loading dataset: {dataset_name}")
     dataset = load_dataset(dataset_name, split="train")
 
-    if max_episodes is not None and max_episodes > 0:
+    if max_demonstrations is not None and max_demonstrations > 0:
         # This is an approximation. We find the step index that corresponds to the
-        # end of the `max_episodes-1`-th episode.
+        # end of the `max_demonstrations-1`-th episode.
         if 'episode_index' in dataset.features:
             episode_indices = np.array(dataset['episode_index'])
-            if max_episodes < np.max(episode_indices):
-                cutoff_index = np.where(episode_indices == max_episodes)[0][0]
+            if max_demonstrations < np.max(episode_indices):
+                cutoff_index = np.where(episode_indices == max_demonstrations)[0][0]
                 dataset = dataset.select(range(cutoff_index))
 
     logger.info(f"Loaded {len(dataset)} total steps.")
@@ -95,9 +95,9 @@ class DatasetManager:
         # Load from HuggingFace
         dataset = load_dataset(self.config.dataset_name, split="train")
         
-        # Limit episodes if specified
-        if self.config.max_episodes:
-            max_samples = min(len(dataset), self.config.max_episodes)
+        # Limit demonstrations if specified
+        if self.config.max_demonstrations:
+            max_samples = min(len(dataset), self.config.max_demonstrations)
             dataset = dataset.select(range(max_samples))
             
         logger.info(f"Loaded {len(dataset)} demonstrations")
@@ -151,10 +151,10 @@ class DatasetManager:
             Dictionary of statistics
         """
         if len(dataset) == 0:
-            return {"num_episodes": 0}
+            return {"num_demonstrations": 0}
             
         stats = {
-            "num_episodes": len(dataset),
+            "num_demonstrations": len(dataset),
             "features": list(dataset.features.keys())
         }
         

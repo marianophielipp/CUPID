@@ -352,7 +352,7 @@ Curated:  {curated_success:.1%} success, {curated_reward:.3f} reward"""
         # Position title with more space from table
         ax.set_title('CUPID Results Summary', fontweight='bold', pad=15)
         
-        ax.text(0.01, 0.05, f"Config: {config.get('dataset_name')} / {config.get('max_episodes', 'N/A')} demos", 
+        ax.text(0.01, 0.05, f"Config: {config.get('dataset_name')} / {config.get('max_demonstrations', 'N/A')} demos", 
                ha='left', va='bottom', fontsize=8, alpha=0.7)
 
 

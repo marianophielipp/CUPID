@@ -57,7 +57,7 @@ class CUPID:
         logger.info("📊 Loading dataset...")
         self.dataset = load_trajectories(
             dataset_name=config.dataset_name,
-            max_episodes=config.max_episodes
+            max_demonstrations=config.max_demonstrations
         )
         
         # Get real dataset metadata from LeRobot dataset

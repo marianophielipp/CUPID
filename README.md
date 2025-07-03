@@ -65,7 +65,7 @@ The notebook provides:
 from cupid import CUPID, Config
 
 # Quick demo with 1000 demonstrations
-config = Config.quick_demo(max_episodes=1000)
+config = Config.quick_demo(max_demonstrations=1000)
 cupid = CUPID(config)
 
 # Full CUPID pipeline
@@ -82,13 +82,13 @@ results = cupid.compare_policies(baseline_policy, curated_policy)
 
 ```bash
 # Minimal test (10 episodes, 1,000 training steps, ~5 min)
-uv run python example_workflow.py --config micro_test --max-episodes 10
+uv run python example_workflow.py --config micro_test --max-demonstrations 10
 
 # Validation test with good results (25 episodes, ~30 min)  
-uv run python example_workflow.py --config smoke_test --max-episodes 25
+uv run python example_workflow.py --config smoke_test --max-demonstrations 25
 
 # Demo-ready scale (50+ episodes, ~2-3 hours)
-uv run python example_workflow.py --config for_demos --max-episodes 50 --environment lerobot
+uv run python example_workflow.py --config for_demos --max-demonstrations 50 --environment lerobot
 
 # Large scale test (1000 episodes, several hours)
 uv run python example_workflow.py --config quick_demo
@@ -102,19 +102,19 @@ uv run python example_workflow.py --config default --environment lerobot
 ### Pre-built Configurations
 
 ```python
-# Micro Test: Ultra-minimal for debugging (10 episodes, 1,000 steps, ~5 min)
-config = Config.micro_test(max_episodes=10)
+# Micro Test: Ultra-minimal for debugging (10 demonstrations, 1,000 steps, ~5 min)
+config = Config.micro_test(max_demonstrations=10)
 
-# Smoke Test: Small validation test (25 episodes, 5,000 steps, ~30 min)
-config = Config.smoke_test(max_episodes=25)
+# Smoke Test: Small validation test (25 demonstrations, 5,000 steps, ~30 min)
+config = Config.smoke_test(max_demonstrations=25)
 
-# For Demos: Medium scale testing (50+ episodes, 75,000 steps, ~2-3 hrs)
-config = Config.for_demos(max_episodes=50)
+# For Demos: Medium scale testing (50+ demonstrations, 75,000 steps, ~2-3 hrs)
+config = Config.for_demos(max_demonstrations=50)
 
-# Quick Demo: Large scale (1000 episodes, optimized for production)  
+# Quick Demo: Large scale (1000 demonstrations, optimized for production)  
 config = Config.quick_demo()
 
-# Default: Full production (all demos, complete training)
+# Default: Full production (all demonstrations, complete training)
 config = Config.default()
 ```
 
@@ -122,8 +122,8 @@ config = Config.default()
 
 Based on comprehensive testing across different scales:
 
-| Configuration | Episodes | Training Steps | Time | Influence Quality | Use Case |
-|---------------|----------|----------------|------|-------------------|----------|
+| Configuration | Demonstrations | Training Steps | Time | Influence Quality | Use Case |
+|---------------|---------------|----------------|------|-------------------|----------|
 | `micro_test` | 10 | 1,000 | ~5 min | ⚠️ Limited differentiation | Debug only |
 | `smoke_test` | 25 | 5,000 | ~30 min | ✅ Good (-549 to +46 range) | Quick validation |
 | `for_demos` | 50+ | 75,000 | ~2-3 hrs | ✅ Excellent (100%+ improvements) | Demonstrations |
@@ -155,7 +155,7 @@ from cupid import Config, TrainingConfig, InfluenceConfig
 
 config = Config(
     dataset_name="lerobot/pusht",
-    max_episodes=2000,
+    max_demonstrations=2000,
     training=TrainingConfig(
         num_steps=25000,
         batch_size=64,
@@ -181,7 +181,7 @@ evaluator = TaskEvaluator(config, render_mode='human')
 metrics = evaluator.evaluate_policy_on_task(
     policy=trained_policy,
     dataset=dataset,
-    num_episodes=100
+    num_demonstrations=100
 )
 
 # Visual demonstrations
@@ -198,34 +198,34 @@ evaluator.demonstrate_policy_rollouts(
 CUPID tracks comprehensive task-based metrics:
 
 - **Success Rate**: Percentage of successful task completions
-- **Average Reward**: Mean reward per episode
-- **Final Distance**: Distance to goal at episode end
+- **Average Reward**: Mean reward per demonstration
+- **Final Distance**: Distance to goal at demonstration end
 - **Action Consistency**: Smoothness of action sequences
 - **Training Efficiency**: Loss reduction over time
 
 ### Example Results
 
-**Smoke Test (25 episodes, 30% selection):**
+**Smoke Test (25 demonstrations, 30% selection):**
 ```
-Baseline Policy (25 demos):
+Baseline Policy (25 demonstrations):
   • Success Rate: 44.0%
   • Average Reward: 0.42
   • Influence Range: -549.07 to +46.09
 
-Curated Policy (12 demos, 48% of data):
+Curated Policy (12 demonstrations, 48% of data):
   • Success Rate: 52.0% (+18.2% improvement)
   • Average Reward: 0.48 (+14.3% improvement)
   • Training Efficiency: 98.6% loss improvement
 ```
 
-**Medium Scale (50 episodes, 30% selection):**
+**Medium Scale (50 demonstrations, 30% selection):**
 ```
-Baseline Policy (50 demos):
+Baseline Policy (50 demonstrations):
   • Success Rate: 0.5%
   • Average Reward: 0.015
   • Influence Range: -19,676 to 0.0
 
-Curated Policy (15 demos, 30% of data):
+Curated Policy (15 demonstrations, 30% of data):
   • Success Rate: 1.0% (+100% improvement)
   • Average Reward: 0.036 (+135.4% improvement)
   • Data Efficiency: 70% fewer training steps
@@ -317,17 +317,17 @@ cupid/
 ### Testing
 
 ```bash
-# Quick functionality test (10 episodes, ~5 minutes)
-uv run python example_workflow.py --config micro_test --max-episodes 10
+# Quick functionality test (10 demonstrations, ~5 minutes)
+uv run python example_workflow.py --config micro_test --max-demonstrations 10
 
 # Interactive notebook test (recommended)
 jupyter lab cupid_pipeline_demo.ipynb
 
-# Validation test with good influence differentiation (~30 min)
-uv run python example_workflow.py --config smoke_test --max-episodes 25
+# Validation test with good influence differentiation (~30 minutes)
+uv run python example_workflow.py --config smoke_test --max-demonstrations 25
 
 # Medium scale demonstration (~2-3 hours)
-uv run python example_workflow.py --config for_demos --max-episodes 50 --environment lerobot
+uv run python example_workflow.py --config for_demos --max-demonstrations 50 --environment lerobot
 
 # Full test suite (if available)
 uv run pytest tests/
@@ -375,7 +375,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ### v0.2.0 (Current)
 - ✅ **New**: Interactive Jupyter notebook with step-by-step pipeline walkthrough
-- ✅ **New**: `micro_test` configuration for rapid debugging (10 demos, 100 steps)
+- ✅ **New**: `micro_test` configuration for rapid debugging (10 demonstrations, 100 steps)
 - ✅ **Enhanced**: Improved configuration system with smoke_test, quick_demo presets
 - ✅ **Enhanced**: Better checkpoint management and policy reuse
 - ✅ **Enhanced**: Comprehensive visualization with multi-panel plots

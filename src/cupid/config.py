@@ -10,6 +10,10 @@ import torch
 from lerobot.common.policies.diffusion.configuration_diffusion import DiffusionConfig
 from lerobot.common.policies.diffusion.modeling_diffusion import DiffusionPolicy # HACK For some reason this is needed to avoid circular import issues
 from lerobot.configs.policies import PreTrainedConfig
+from pathlib import Path
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -114,7 +118,7 @@ class Config:
     
     # Dataset configuration
     dataset_name: str = "lerobot/pusht_image"
-    max_episodes: Optional[int] = None
+    max_demonstrations: Optional[int] = None  # Changed from max_episodes
     
     # Environment configuration
     environment_type: str = "cupid"  # "cupid" or "lerobot"
@@ -158,20 +162,30 @@ class Config:
         # Convert device to torch.device if it's a string
         if isinstance(self.device, str):
             self.device = torch.device(self.device)
+            
+        # Ensure checkpoint directory exists
+        Path(self.checkpoint_dir).mkdir(parents=True, exist_ok=True)
+        
+        logger.info(f"🔧 Config: {self.config_name}")
+        logger.info(f"   Dataset: {self.dataset_name}")
+        logger.info(f"   Max demonstrations: {self.max_demonstrations or 'all available'}")
+        logger.info(f"   Device: {self.device}")
+        logger.info(f"   Training steps: {self.training.num_steps}")
+        logger.info(f"   Selection ratio: {self.influence.selection_ratio:.1%}")
     
     @classmethod
-    def default(cls, max_episodes: Optional[int] = None) -> 'Config':
+    def default(cls, max_demonstrations: Optional[int] = None) -> 'Config':
         """
         Create default configuration for standard use.
         
         Args:
-            max_episodes: Maximum number of demonstrations to use. 
-                         If None, uses all available demonstrations in the dataset.
-                         Default: None (use all)
+            max_demonstrations: Maximum number of demonstrations to use. 
+                          If None, uses all available demonstrations in the dataset.
+                          Default: None (use all)
         """
         return cls(
             config_name="default",
-            max_episodes=max_episodes,  # Configurable, None = use all available
+            max_demonstrations=max_demonstrations,  # Configurable, None = use all available
             training=TrainingConfig(num_steps=100000), # Increased from 20K
             policy=PolicyConfig(
                 n_obs_steps=2,
@@ -184,18 +198,18 @@ class Config:
         )
     
     @classmethod
-    def quick_demo(cls, max_episodes: Optional[int] = 1000) -> 'Config':
+    def quick_demo(cls, max_demonstrations: Optional[int] = 1000) -> 'Config':
         """
         Create configuration for quick demonstration/testing.
         
         Args:
-            max_episodes: Maximum number of demonstrations to use.
+            max_demonstrations: Maximum number of demonstrations to use.
                          Default: 1000 for faster experimentation.
                          Set to None to use all available demonstrations.
         """
         return cls(
             config_name="quick_demo",
-            max_episodes=max_episodes,   # Configurable, default 1000 for speed
+            max_demonstrations=max_demonstrations,   # Configurable, default 1000 for speed
             training=TrainingConfig(
                 num_steps=50000,
                 batch_size=64,
@@ -247,12 +261,12 @@ class Config:
         return min(target_count, total_demos)  # Can't exceed total
     
     @classmethod
-    def for_demos(cls, max_episodes: int, **kwargs) -> 'Config':
+    def for_demos(cls, max_demonstrations: int, **kwargs) -> 'Config':
         """
         Create configuration optimized for a specific number of demonstrations.
         
         Args:
-            max_episodes: Number of demonstrations to use
+            max_demonstrations: Number of demonstrations to use
             **kwargs: Additional parameters to override defaults in `training`,
                       `policy`, `influence`, or top-level `Config`.
             
@@ -267,19 +281,19 @@ class Config:
             config = Config.for_demos(250)
         """
         # Choose sensible defaults based on demo count
-        if max_episodes <= 500:
+        if max_demonstrations <= 500:
             # Small dataset - more intensive training
-            config = cls.quick_demo(max_episodes)
+            config = cls.quick_demo(max_demonstrations)
             config.training.num_steps = 75000
             config.influence.selection_ratio = 0.30
-        elif max_episodes <= 1500:
+        elif max_demonstrations <= 1500:
             # Medium dataset - balanced approach
-            config = cls.default(max_episodes)
+            config = cls.default(max_demonstrations)
             config.training.num_steps = 100000
             config.influence.selection_ratio = 0.35
         else:
             # Large dataset - standard approach
-            config = cls.default(max_episodes)
+            config = cls.default(max_demonstrations)
             config.training.num_steps = 150000 # More steps for large datasets
         
         # Override any additional parameters provided from kwargs
@@ -296,7 +310,7 @@ class Config:
         return config
 
     @classmethod
-    def smoke_test(cls, max_episodes: int = 20) -> 'Config':
+    def smoke_test(cls, max_demonstrations: int = 20) -> 'Config':
         """
         FIXED: Proper smoke test configuration that actually works for diffusion models.
         
@@ -306,7 +320,7 @@ class Config:
         return cls(
             config_name="smoke_test",
             dataset_name="lerobot/pusht_image",
-            max_episodes=max_episodes,
+            max_demonstrations=max_demonstrations,
             checkpoint_dir="checkpoints_debug",
             force_retrain=True,
             training=TrainingConfig(
@@ -331,9 +345,9 @@ class Config:
             ),
             evaluation=EvaluationConfig(num_episodes=10)
         )
-
+    
     @classmethod
-    def micro_test(cls, max_episodes: int = 10) -> 'Config':
+    def micro_test(cls, max_demonstrations: int = 10) -> 'Config':
         """
         Ultra-minimal test configuration for debugging the pipeline.
         Uses absolute minimum settings to test each step quickly.
@@ -341,7 +355,7 @@ class Config:
         return cls(
             config_name="micro_test",
             dataset_name="lerobot/pusht_image",
-            max_episodes=max_episodes,
+            max_demonstrations=max_demonstrations,
             checkpoint_dir="checkpoints",  # Use main checkpoints to reuse existing policy
             force_retrain=False,  # Don't retrain - reuse existing policy!
             training=TrainingConfig(

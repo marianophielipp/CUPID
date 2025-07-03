@@ -21,6 +21,7 @@ import sys
 import argparse
 from typing import Optional
 from dataclasses import asdict
+import time
 
 # Configure logging for production use
 logging.basicConfig(
@@ -50,62 +51,46 @@ except ImportError as e:
 
 
 def setup_error_handling():
-    """Setup global error handling for production use."""
+    """Setup comprehensive error handling for the workflow."""
     def handle_exception(exc_type, exc_value, exc_traceback):
         if issubclass(exc_type, KeyboardInterrupt):
-            logger.info("🚪 CUPID workflow interrupted by user")
+            logger.info("⚠️  Workflow interrupted by user")
             sys.__excepthook__(exc_type, exc_value, exc_traceback)
             return
         
-        logger.error(
-            "💥 Uncaught exception occurred",
-            exc_info=(exc_type, exc_value, exc_traceback)
-        )
+        logger.error("💥 Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback))
     
     sys.excepthook = handle_exception
 
 
 def validate_environment():
     """Validate that the environment is properly set up."""
-    logger.info("🔍 Validating environment...")
-    
-    # Check PyTorch installation
     try:
         logger.info(f"✅ PyTorch version: {torch.__version__}")
-        logger.info(f"✅ CUDA available: {torch.cuda.is_available()}")
-        if hasattr(torch.backends, 'mps'):
-            logger.info(f"✅ MPS available: {torch.backends.mps.is_available()}")
+        
+        if torch.cuda.is_available():
+            logger.info(f"✅ CUDA available: {torch.cuda.get_device_name(0)}")
         else:
-            logger.info("ℹ️ MPS not available (requires PyTorch 1.12+)")
+            logger.info("ℹ️  CUDA not available, using CPU")
+            
+        # Check if we can import all required components
+        from src.cupid.cupid import CUPID
+        from src.cupid.config import Config
+        logger.info("✅ All CUPID components imported successfully")
+        
+        return True
     except Exception as e:
-        logger.error(f"❌ PyTorch validation failed: {e}")
+        logger.error(f"❌ Environment validation failed: {e}")
         return False
-    
-    # Check optional dependencies
-    try:
-        import pygame
-        logger.info(f"✅ pygame version: {pygame.version.ver}")
-    except ImportError:
-        logger.warning("⚠️ pygame not available - rendering will be disabled")
-    
-    try:
-        import datasets
-        logger.info(f"✅ datasets version: {datasets.__version__}")
-    except ImportError:
-        logger.error("❌ HuggingFace datasets not available - required for data loading")
-        return False
-    
-    logger.info("✅ Environment validation complete")
-    return True
 
 
-def main(render=False, max_episodes=None, config_name="quick_demo", selection_ratio=None, force_retrain=False, environment="cupid", lerobot_path=None, generate_videos=False):
+def main(render=False, max_demonstrations=None, config_name="quick_demo", selection_ratio=None, force_retrain=False, environment="cupid", lerobot_path=None, generate_videos=False):
     """
     Complete CUPID workflow example with comprehensive error handling.
     
     Args:
         render: Enable visual rendering
-        max_episodes: Maximum number of episodes to use
+        max_demonstrations: Maximum number of demonstrations to use
         config_name: Configuration preset name
         selection_ratio: Override selection ratio (e.g., 0.33 for 33%)
         force_retrain: Force retraining even if checkpoints exist
@@ -130,18 +115,18 @@ def main(render=False, max_episodes=None, config_name="quick_demo", selection_ra
         # Initialize CUPID with flexible configuration
         logger.info(f"📋 Loading configuration: {config_name}")
         if config_name == "smoke_test":
-            config = Config.smoke_test(max_episodes=max_episodes or 20)
+            config = Config.smoke_test(max_demonstrations=max_demonstrations or 20)
         elif config_name == "micro_test":
-            config = Config.micro_test(max_episodes=max_episodes or 10)
+            config = Config.micro_test(max_demonstrations=max_demonstrations or 10)
         elif config_name == "quick_demo":
-            if max_episodes is None:
+            if max_demonstrations is None:
                 config = Config.quick_demo()  # Default: 1000 demos
             else:
-                config = Config.for_demos(max_episodes)
+                config = Config.for_demos(max_demonstrations)
         elif config_name == "default":
-            config = Config.default(max_episodes=max_episodes)
+            config = Config.default(max_demonstrations=max_demonstrations)
         else:
-            config = Config.for_demos(max_episodes or 1000)
+            config = Config.for_demos(max_demonstrations or 1000)
         
         # Override config with CLI args
         if selection_ratio is not None:
@@ -156,7 +141,7 @@ def main(render=False, max_episodes=None, config_name="quick_demo", selection_ra
         logger.info(f"✅ Configuration loaded: {config.dataset_name}")
         logger.info(f"   Device: {config.device}")
         logger.info(f"   Environment: {config.environment_type}")
-        logger.info(f"   Max episodes: {config.max_episodes or 'all available'}")
+        logger.info(f"   Max demonstrations: {config.max_demonstrations or 'all available'}")
         logger.info(f"   Selection ratio: {config.influence.selection_ratio*100:.0f}%")
         logger.info(f"   Force retrain: {config.force_retrain}")
         
@@ -265,7 +250,7 @@ def main(render=False, max_episodes=None, config_name="quick_demo", selection_ra
             logger.info(f"      Showing {rollout_count} rollouts of each policy...")
             
             # Create a separate evaluator with rendering enabled for demonstrations only
-            from cupid.evaluation import TaskEvaluator
+            from src.cupid.evaluation import TaskEvaluator
             demo_evaluator = TaskEvaluator(config, render_mode='human')
             
             # Flatten dataset for demonstrations (evaluator expects individual steps)
@@ -284,13 +269,13 @@ def main(render=False, max_episodes=None, config_name="quick_demo", selection_ra
             )
         
         # Generate videos only if explicitly requested
-        if args.generate_videos:
+        if generate_videos:
             logger.info("   🎬 Generating video comparisons...")
             video_output_dir = Path("outputs") / "videos"
             video_output_dir.mkdir(parents=True, exist_ok=True)
             
             # Create evaluator for video generation (no interactive rendering)
-            from cupid.evaluation import TaskEvaluator
+            from src.cupid.evaluation import TaskEvaluator
             video_evaluator = TaskEvaluator(config, render_mode=None)
             
             # Flatten dataset for video generation
@@ -408,28 +393,27 @@ def _print_final_report(results: dict, num_curated: int, num_total: int):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="CUPID Workflow Example")
-    parser.add_argument("--render", action="store_true", help="Enable visual rendering")
-    parser.add_argument("--max-episodes", type=int, help="Maximum number of episodes to use")
-    parser.add_argument("--config", dest="config_name", type=str, default="quick_demo",
-                        help="Configuration preset (smoke_test, quick_demo, default)")
-    parser.add_argument("--selection-ratio", type=float, default=None, help="Influence selection ratio (e.g., 0.33 for 33%)")
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Run CUPID workflow")
+    parser.add_argument("--render", action="store_true", help="Show visual demonstrations")
+    parser.add_argument("--max-demonstrations", type=int, help="Maximum number of demonstrations to use")
+    parser.add_argument("--config", default="quick_demo", choices=["smoke_test", "micro_test", "quick_demo", "for_demos", "default"], help="Configuration to use")
+    parser.add_argument("--selection-ratio", type=float, help="Selection ratio (e.g., 0.25 for 25%)")
     parser.add_argument("--force-retrain", action="store_true", help="Force retraining even if checkpoints exist")
-    parser.add_argument("--environment", type=str, default="cupid", choices=["cupid", "lerobot"],
-                        help="Environment type: 'cupid' (custom simulator) or 'lerobot' (original)")
-    parser.add_argument("--lerobot-path", type=str, default="/home/mphielipp/robotsw/lerobot",
-                        help="Path to LeRobot installation (if using lerobot environment)")
-    parser.add_argument("--generate-videos", action="store_true", help="Generate comparison videos")
-
+    parser.add_argument("--environment", default="cupid", choices=["cupid", "lerobot"], help="Environment type")
+    parser.add_argument("--lerobot-path", help="Path to LeRobot installation")
+    parser.add_argument("--generate-videos", action="store_true", help="Generate demonstration videos (lerobot only)")
+    
     args = parser.parse_args()
-
-    sys.exit(main(
+    
+    results = main(
         render=args.render,
-        max_episodes=args.max_episodes,
-        config_name=args.config_name,
+        max_demonstrations=args.max_demonstrations,
+        config_name=args.config,
         selection_ratio=args.selection_ratio,
         force_retrain=args.force_retrain,
         environment=args.environment,
         lerobot_path=args.lerobot_path,
         generate_videos=args.generate_videos
-    )) 
+    ) 

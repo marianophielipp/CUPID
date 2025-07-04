@@ -81,16 +81,16 @@ results = cupid.compare_policies(baseline_policy, curated_policy)
 ### Command Line Interface
 
 ```bash
-# Minimal test (10 episodes, 1,000 training steps, ~5 min)
+# Minimal test (10 demonstrations, 1,000 training steps, ~5 min)
 uv run python example_workflow.py --config micro_test --max-demonstrations 10
 
-# Validation test with good results (25 episodes, ~30 min)  
+# Validation test with good results (25 demonstrations, ~30 min)  
 uv run python example_workflow.py --config smoke_test --max-demonstrations 25
 
-# Demo-ready scale (50+ episodes, ~2-3 hours)
+# Demo-ready scale (50+ demonstrations, ~2-3 hours)
 uv run python example_workflow.py --config for_demos --max-demonstrations 50 --environment lerobot
 
-# Large scale test (1000 episodes, several hours)
+# Large scale test (1000 demonstrations, several hours)
 uv run python example_workflow.py --config quick_demo
 
 # Production run (all available data)

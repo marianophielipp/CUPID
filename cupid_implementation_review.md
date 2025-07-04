@@ -144,28 +144,28 @@ The code quality is high, with proper error handling, device management, and con
 # Train baseline on all data
 uv run python example_workflow.py --config default --environment lerobot
 
-# Large scale demo with 1000 episodes
+# Large scale demo with 1000 demonstrations
 uv run python example_workflow.py --config quick_demo
 
 # Debug mode with minimal data (limited influence differentiation)
-uv run python example_workflow.py --config micro_test --max-episodes 10
+uv run python example_workflow.py --config micro_test --max-demonstrations 10
 
 # Recommended validation test (good influence differentiation)
-uv run python example_workflow.py --config smoke_test --max-episodes 25
+uv run python example_workflow.py --config smoke_test --max-demonstrations 25
 
 # Demo-ready scale with excellent results
-uv run python example_workflow.py --config for_demos --max-episodes 50 --environment lerobot
+uv run python example_workflow.py --config for_demos --max-demonstrations 50 --environment lerobot
 ```
 
 ## Recent Testing Insights (Added 2025-07-02)
 
 **Scale-based performance validation:**
-- **micro_test (10 episodes)**: Limited influence differentiation (mostly zero scores)
-- **smoke_test (25 episodes)**: Good differentiation (-549 to +46 range), 18%+ improvements
-- **for_demos (50 episodes)**: Excellent results (100%+ success rate improvement, -19,676 to 0.0 range)
+- **micro_test (10 demonstrations)**: Limited influence differentiation (mostly zero scores)
+- **smoke_test (25 demonstrations)**: Good differentiation (-549 to +46 range), 18%+ improvements
+- **for_demos (50 demonstrations)**: Excellent results (100%+ success rate improvement, -19,676 to 0.0 range)
 
 **Key findings:**
-- Minimum 25 episodes needed for meaningful influence differentiation
-- 50+ episodes provide excellent CUPID demonstration results
+- Minimum 25 demonstrations needed for meaningful influence differentiation
+- 50+ demonstrations provide excellent CUPID demonstration results
 - LeRobot integration has `sample_action` compatibility issues (falls back to simulation)
 - Actual training: 1,000-75,000 steps depending on configuration (not 20,000 universally)

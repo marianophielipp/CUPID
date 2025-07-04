@@ -230,9 +230,9 @@ class CUPID:
         curated_steps = len(curated_dataset)
         selection_ratio = selected_trajectories / total_trajectories
         
-        logger.info(f"🚀 Fine-tuning baseline policy with {selected_trajectories} trajectories ({curated_steps} steps)...")
+        logger.info(f"🚀 Training NEW curated policy from scratch with {selected_trajectories} trajectories ({curated_steps} steps)...")
         logger.info(f"   📊 Selection: {selected_trajectories}/{total_trajectories} trajectories ({selection_ratio:.1%})")
-        logger.info(f"   🎯 CUPID Method: Fine-tuning existing baseline (not training from scratch)")
+        logger.info(f"   🎯 CUPID Method: Training fresh policy on curated data (standard CUPID approach)")
         
         # Create policy for training
         policy = self.policy_manager.create_policy()

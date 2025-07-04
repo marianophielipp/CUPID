@@ -404,7 +404,9 @@ class InfluenceComputer:
             
             traj_grad_flat = torch.cat(grad_vectors)
             
-            # Compute influence: -grad_train^T * H^-1 * grad_perf
+            # Compute influence: -grad_perf^T * H^-1 * grad_train (CUPID Definition 1)
+            # CUPID: Positive influence = demo helps performance = removing it hurts
+            # CUPID: Negative influence = demo hurts performance = removing it helps  
             # Since hessian_inv is diagonal, H^-1 * grad_perf is element-wise multiplication
             influence = -torch.dot(traj_grad_flat, hessian_inv * perf_grad)
             influence_scores.append(influence.item())
@@ -668,9 +670,10 @@ class InfluenceComputer:
         """
         Select high-impact demonstrations based on influence scores.
         
-        IMPROVED: Only selects demonstrations with positive influence scores,
-        taking the minimum between the configured percentage and all positive scores.
-        This prevents selecting demonstrations that hurt performance.
+        BALANCED APPROACH: Uses a mixed strategy to avoid being too aggressive:
+        1. Prioritize positive influence scores
+        2. If insufficient positive scores, fill remaining with top scores (even if negative)
+        3. Set minimum threshold to avoid extremely negative scores
         
         Args:
             influence_scores: Array of influence scores for each demonstration
@@ -693,33 +696,48 @@ class InfluenceComputer:
         if num_positive == 0:
             logger.warning("⚠️  No demonstrations with positive influence scores found!")
             logger.warning("    This suggests the influence function may not be working correctly.")
-            logger.warning("    Falling back to selecting top demonstrations anyway.")
+            logger.warning("    Using conservative selection: avoiding worst 20% of demonstrations.")
             
-            # Fallback: select top demonstrations even if negative
-            selected_indices = sorted_indices[:target_count]
+            # Conservative fallback: avoid the worst 20% of demonstrations
+            conservative_count = min(target_count, int(total_demos * 0.8))
+            selected_indices = sorted_indices[:conservative_count]
             selected_scores = influence_scores[selected_indices]
             
-            logger.info(f"Selected {len(selected_indices)} demonstrations (all negative) with influence scores "
+            logger.info(f"Selected {len(selected_indices)} demonstrations (conservative selection) with influence scores "
                        f"from {selected_scores.min():.4f} to {selected_scores.max():.4f}")
-        else:
-            # Smart selection: only use positive influence demonstrations
-            # Take minimum between target count and number of positive demonstrations
-            actual_count = min(target_count, num_positive)
+                       
+        elif num_positive < target_count * 0.5:  # If positive scores are less than 50% of target
+            logger.info("⚖️  Balanced selection strategy applied:")
+            logger.info(f"   📊 Positive influence demos: {num_positive}/{total_demos} ({num_positive/total_demos*100:.1f}%)")
+            logger.info(f"   🎯 Target selection: {target_count}/{total_demos} ({target_count/total_demos*100:.1f}%)")
             
+            # Mixed strategy: use all positive + fill with best non-positive (but not worst)
+            # Avoid the bottom 25% of scores (extremely negative)
+            min_threshold_index = int(total_demos * 0.75)  # Top 75% of scores
+            available_indices = sorted_indices[:min_threshold_index]
+            available_scores = sorted_scores[:min_threshold_index]
+            
+            # Take all positive scores first, then fill remaining from available 
+            actual_count = min(target_count, len(available_indices))
+            selected_indices = available_indices[:actual_count]
+            selected_scores = influence_scores[selected_indices]
+            
+            num_positive_selected = np.sum(influence_scores[selected_indices] > 0)
+            num_neutral_selected = actual_count - num_positive_selected
+            
+            logger.info(f"   ✅ Selected: {num_positive_selected} positive + {num_neutral_selected} neutral/top-negative = {actual_count} total")
+            logger.info(f"   📈 Selected influence scores: {selected_scores.min():.4f} to {selected_scores.max():.4f}")
+            logger.info(f"   ℹ️  Avoided bottom 25% of demonstrations (worst influence scores)")
+            
+        else:
+            # Sufficient positive scores - use positive-only selection
+            actual_count = min(target_count, num_positive)
             selected_indices = sorted_indices[:actual_count]
             selected_scores = influence_scores[selected_indices]
             
-            positive_percentage = (num_positive / total_demos) * 100
-            target_percentage = (target_count / total_demos) * 100
-            actual_percentage = (actual_count / total_demos) * 100
-            
-            logger.info(f"✅ Smart selection strategy applied:")
-            logger.info(f"   📊 Positive influence demos: {num_positive}/{total_demos} ({positive_percentage:.1f}%)")
-            logger.info(f"   🎯 Target selection: {target_count}/{total_demos} ({target_percentage:.1f}%)")
-            logger.info(f"   ✅ Actual selection: {actual_count}/{total_demos} ({actual_percentage:.1f}%)")
+            logger.info(f"✅ Positive-focused selection strategy applied:")
+            logger.info(f"   📊 Positive influence demos: {num_positive}/{total_demos} ({num_positive/total_demos*100:.1f}%)")
+            logger.info(f"   ✅ Selected: {actual_count}/{total_demos} ({actual_count/total_demos*100:.1f}%)")
             logger.info(f"   📈 Selected influence scores: {selected_scores.min():.4f} to {selected_scores.max():.4f}")
-            
-            if actual_count < target_count:
-                logger.info(f"   ℹ️  Selected fewer demos than target to avoid negative influence scores")
         
         return selected_indices, selected_scores 

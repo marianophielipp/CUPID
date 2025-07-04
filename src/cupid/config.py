@@ -321,7 +321,7 @@ class Config:
             config_name="smoke_test",
             dataset_name="lerobot/pusht_image",
             max_demonstrations=max_demonstrations,
-            checkpoint_dir="checkpoints_debug",
+            checkpoint_dir="checkpoints",
             force_retrain=True,
             training=TrainingConfig(
                 num_steps=5000,

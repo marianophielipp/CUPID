@@ -668,6 +668,10 @@ class InfluenceComputer:
         """
         Select high-impact demonstrations based on influence scores.
         
+        IMPROVED: Only selects demonstrations with positive influence scores,
+        taking the minimum between the configured percentage and all positive scores.
+        This prevents selecting demonstrations that hurt performance.
+        
         Args:
             influence_scores: Array of influence scores for each demonstration
             total_demos: Total number of demonstrations available
@@ -675,17 +679,47 @@ class InfluenceComputer:
         Returns:
             Tuple of (selected_indices, selected_scores)
         """
-        # Calculate number of demonstrations to select
+        # Calculate target number of demonstrations to select
         target_count = self.config.get_selection_count(total_demos)
         
         # Sort by influence score (highest first)
         sorted_indices = np.argsort(influence_scores)[::-1]
+        sorted_scores = influence_scores[sorted_indices]
         
-        # Select top demonstrations
-        selected_indices = sorted_indices[:target_count]
-        selected_scores = influence_scores[selected_indices]
+        # Find demonstrations with positive influence
+        positive_mask = sorted_scores > 0
+        num_positive = np.sum(positive_mask)
         
-        logger.info(f"Selected {len(selected_indices)} demonstrations with influence scores "
-                   f"from {selected_scores.min():.4f} to {selected_scores.max():.4f}")
+        if num_positive == 0:
+            logger.warning("⚠️  No demonstrations with positive influence scores found!")
+            logger.warning("    This suggests the influence function may not be working correctly.")
+            logger.warning("    Falling back to selecting top demonstrations anyway.")
+            
+            # Fallback: select top demonstrations even if negative
+            selected_indices = sorted_indices[:target_count]
+            selected_scores = influence_scores[selected_indices]
+            
+            logger.info(f"Selected {len(selected_indices)} demonstrations (all negative) with influence scores "
+                       f"from {selected_scores.min():.4f} to {selected_scores.max():.4f}")
+        else:
+            # Smart selection: only use positive influence demonstrations
+            # Take minimum between target count and number of positive demonstrations
+            actual_count = min(target_count, num_positive)
+            
+            selected_indices = sorted_indices[:actual_count]
+            selected_scores = influence_scores[selected_indices]
+            
+            positive_percentage = (num_positive / total_demos) * 100
+            target_percentage = (target_count / total_demos) * 100
+            actual_percentage = (actual_count / total_demos) * 100
+            
+            logger.info(f"✅ Smart selection strategy applied:")
+            logger.info(f"   📊 Positive influence demos: {num_positive}/{total_demos} ({positive_percentage:.1f}%)")
+            logger.info(f"   🎯 Target selection: {target_count}/{total_demos} ({target_percentage:.1f}%)")
+            logger.info(f"   ✅ Actual selection: {actual_count}/{total_demos} ({actual_percentage:.1f}%)")
+            logger.info(f"   📈 Selected influence scores: {selected_scores.min():.4f} to {selected_scores.max():.4f}")
+            
+            if actual_count < target_count:
+                logger.info(f"   ℹ️  Selected fewer demos than target to avoid negative influence scores")
         
         return selected_indices, selected_scores 

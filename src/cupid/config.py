@@ -198,18 +198,18 @@ class Config:
         )
     
     @classmethod
-    def quick_demo(cls, max_demonstrations: Optional[int] = 1000) -> 'Config':
+    def quick_demo(cls, max_demonstrations: Optional[int] = None) -> 'Config':
         """
         Create configuration for quick demonstration/testing.
         
         Args:
             max_demonstrations: Maximum number of demonstrations to use.
-                         Default: 1000 for faster experimentation.
-                         Set to None to use all available demonstrations.
+                         Default: None (use all available demonstrations).
+                         For PushT dataset, this means using all 389 demonstrations.
         """
         return cls(
             config_name="quick_demo",
-            max_demonstrations=max_demonstrations,   # Configurable, default 1000 for speed
+            max_demonstrations=max_demonstrations,   # Configurable, None = use all available
             training=TrainingConfig(
                 num_steps=50000,
                 batch_size=64,

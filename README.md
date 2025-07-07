@@ -64,8 +64,8 @@ The notebook provides:
 ```python
 from cupid import CUPID, Config
 
-# Quick demo with 1000 demonstrations
-config = Config.quick_demo(max_demonstrations=1000)
+# Quick demo with available demonstrations
+config = Config.quick_demo(max_demonstrations=389)
 cupid = CUPID(config)
 
 # Full CUPID pipeline
@@ -90,7 +90,7 @@ uv run python example_workflow.py --config smoke_test --max-demonstrations 25
 # Demo-ready scale (50+ demonstrations, ~2-3 hours)
 uv run python example_workflow.py --config for_demos --max-demonstrations 50 --environment lerobot
 
-# Large scale test (1000 demonstrations, several hours)
+# Large scale test (up to 389 demonstrations available)
 uv run python example_workflow.py --config quick_demo
 
 # Production run (all available data)
@@ -111,7 +111,7 @@ config = Config.smoke_test(max_demonstrations=25)
 # For Demos: Medium scale testing (50+ demonstrations, 75,000 steps, ~2-3 hrs)
 config = Config.for_demos(max_demonstrations=50)
 
-# Quick Demo: Large scale (1000 demonstrations, optimized for production)  
+# Quick Demo: Large scale (up to 389 demonstrations for PushT)
 config = Config.quick_demo()
 
 # Default: Full production (all demonstrations, complete training)
@@ -127,7 +127,7 @@ Based on comprehensive testing across different scales:
 | `micro_test` | 10 | 1,000 | ~5 min | Limited differentiation | Debug only |
 | `smoke_test` | 25 | 5,000 | ~30 min | Good (-549 to +46 range) | Quick validation |
 | `for_demos` | 50+ | 75,000 | ~2-3 hrs | Excellent (100%+ improvements) | Demonstrations |
-| `quick_demo` | 1000 | Optimized | Several hrs | Production quality | Full evaluation |
+| `quick_demo` | 389 (max) | Optimized | Several hrs | Production quality | Full evaluation |
 
 **Note**: `micro_test` shows limited influence differentiation (mostly zero scores) due to insufficient data. Use `smoke_test` or larger for meaningful results.
 
@@ -155,7 +155,7 @@ from cupid import Config, TrainingConfig, InfluenceConfig
 
 config = Config(
     dataset_name="lerobot/pusht",
-    max_demonstrations=2000,
+    max_demonstrations=389,  # Use all available PushT demonstrations
     training=TrainingConfig(
         num_steps=25000,
         batch_size=64,

@@ -119,14 +119,11 @@ def main(render=False, max_demonstrations=None, config_name="quick_demo", select
         elif config_name == "micro_test":
             config = Config.micro_test(max_demonstrations=max_demonstrations or 10)
         elif config_name == "quick_demo":
-            if max_demonstrations is None:
-                config = Config.quick_demo()  # Default: 1000 demos
-            else:
-                config = Config.for_demos(max_demonstrations)
+            config = Config.quick_demo(max_demonstrations=max_demonstrations)  # Use all available or specified count
         elif config_name == "default":
             config = Config.default(max_demonstrations=max_demonstrations)
         else:
-            config = Config.for_demos(max_demonstrations or 1000)
+            config = Config.for_demos(max_demonstrations or 389)  # Use all available PushT demos by default
         
         # Override config with CLI args
         if selection_ratio is not None:

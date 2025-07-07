@@ -34,7 +34,7 @@ def test_policy_forward_pass():
     noise_pred = policy(obs, noisy_actions, timestep)
     
     assert noise_pred.shape == (batch_size, 2), f"Expected shape {(batch_size, 2)}, got {noise_pred.shape}"
-    logger.info("✅ Policy forward pass successful")
+    logger.info("Policy forward pass successful")
     
 
 def test_policy_sampling():
@@ -53,7 +53,7 @@ def test_policy_sampling():
     actions = policy.sample_action(obs)
     
     assert actions.shape == (batch_size, 2), f"Expected shape {(batch_size, 2)}, got {actions.shape}"
-    logger.info("✅ Policy action sampling successful")
+    logger.info("Policy action sampling successful")
 
 
 def test_influence_computation():
@@ -106,7 +106,7 @@ def test_influence_computation():
     
     assert len(influence_scores) == num_trajectories, f"Expected {num_trajectories} scores, got {len(influence_scores)}"
     assert np.all(np.isfinite(influence_scores)), "Influence scores contain NaN or Inf"
-    logger.info(f"✅ Influence computation successful. Scores: {influence_scores}")
+    logger.info(f"Influence computation successful. Scores: {influence_scores}")
 
 
 def test_demonstration_selection():
@@ -131,7 +131,7 @@ def test_demonstration_selection():
     
     # Check that selected scores are the highest
     assert np.all(selected_scores == np.sort(influence_scores)[::-1][:expected_count])
-    logger.info(f"✅ Demonstration selection successful. Selected indices: {selected_indices}")
+    logger.info(f"Demonstration selection successful. Selected indices: {selected_indices}")
 
 
 def test_cupid_integration():
@@ -161,7 +161,7 @@ def test_cupid_integration():
     try:
         # Check dataset loaded
         assert len(cupid.dataset) == 5, f"Expected 5 trajectories, got {len(cupid.dataset)}"
-        logger.info("✅ CUPID initialization successful")
+        logger.info("CUPID initialization successful")
         
     finally:
         # Restore original function
@@ -185,13 +185,13 @@ def main():
         try:
             test()
         except Exception as e:
-            logger.error(f"❌ Test {test.__name__} failed: {str(e)}")
+            logger.error(f"Test {test.__name__} failed: {str(e)}")
             failed += 1
     
     if failed == 0:
-        logger.info("\n🎉 All tests passed!")
+        logger.info("\nAll tests passed!")
     else:
-        logger.error(f"\n❌ {failed}/{len(tests)} tests failed")
+        logger.error(f"\n{failed}/{len(tests)} tests failed")
         return 1
     
     return 0

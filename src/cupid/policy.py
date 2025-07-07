@@ -54,7 +54,7 @@ class PolicyManager:
 
         # Get device from policy or config
         device = getattr(policy, 'device', self.config.device)
-        logger.info(f"✅ LeRobot DiffusionPolicy created and moved to {device}.")
+        logger.info(f"LeRobot DiffusionPolicy created and moved to {device}.")
         logger.info(f"   - Vision Backbone: {policy.config.vision_backbone}")
         logger.info(f"   - U-Net Down Dims: {policy.config.down_dims}")
         logger.info(f"   - Action Horizon: {policy.config.horizon}")
@@ -70,7 +70,7 @@ class PolicyManager:
             policy: Policy model to save
             filepath: Path to save checkpoint
         """
-        logger.info(f"💾 Saving policy to {filepath}...")
+        logger.info(f"Saving policy to {filepath}...")
         
         # Create directory if it doesn't exist
         filepath.parent.mkdir(parents=True, exist_ok=True)
@@ -83,7 +83,7 @@ class PolicyManager:
         }
         
         torch.save(checkpoint, str(filepath))
-        logger.info(f"✅ Policy saved successfully to {filepath}")
+        logger.info(f"Policy saved successfully to {filepath}")
 
     def load_policy(self, filepath: Path) -> torch.nn.Module:
         """
@@ -111,5 +111,5 @@ class PolicyManager:
         
         # Get device from policy or config
         device = getattr(policy, 'device', self.config.device)
-        logger.info(f"✅ Policy loaded successfully and moved to {device}.")
+        logger.info(f"Policy loaded successfully and moved to {device}.")
         return policy 

@@ -151,7 +151,7 @@ class Trainer:
             num_training_steps=training_config.num_steps,
         )
 
-        logger.info(f"🚀 Starting training for {training_config.num_steps} steps...")
+        logger.info(f"Starting training for {training_config.num_steps} steps...")
         policy.train()
         loss_history = []
         
@@ -184,7 +184,7 @@ class Trainer:
                 step += 1
         
         progress_bar.close()
-        logger.info("✅ Training complete.")
+        logger.info("Training complete.")
         return policy, loss_history
 
     def evaluate_policy(self, policy) -> Dict[str, float]:
@@ -192,6 +192,6 @@ class Trainer:
         DEPRECATED: This method has been removed. 
         Use TaskEvaluator.evaluate_policy_on_task() for proper task-based evaluation.
         """
-        logger.error("❌ Trainer.evaluate_policy() is deprecated and broken!")
+        logger.error("Trainer.evaluate_policy() is deprecated and broken!")
         logger.error("   Use TaskEvaluator.evaluate_policy_on_task() instead")
         raise NotImplementedError("Use TaskEvaluator.evaluate_policy_on_task() for proper evaluation") 

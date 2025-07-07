@@ -166,7 +166,7 @@ class Config:
         # Ensure checkpoint directory exists
         Path(self.checkpoint_dir).mkdir(parents=True, exist_ok=True)
         
-        logger.info(f"🔧 Config: {self.config_name}")
+        logger.info(f"Config: {self.config_name}")
         logger.info(f"   Dataset: {self.dataset_name}")
         logger.info(f"   Max demonstrations: {self.max_demonstrations or 'all available'}")
         logger.info(f"   Device: {self.device}")

@@ -45,7 +45,7 @@ class CUPID:
         """
         self.config = config
         self.device = torch.device(config.device)
-        logger.info(f"🚀 Initializing CUPID on device: {self.device}")
+        logger.info(f"Initializing CUPID on device: {self.device}")
         
         # Initialize components
         self.data_manager = DatasetManager(config)
@@ -54,21 +54,21 @@ class CUPID:
         self.task_evaluator = TaskEvaluator(config, render_mode=render_mode)
         
         # Load dataset first to get metadata for policy manager
-        logger.info("📊 Loading dataset...")
+        logger.info("Loading dataset...")
         self.dataset = load_trajectories(
             dataset_name=config.dataset_name,
             max_demonstrations=config.max_demonstrations
         )
         
         # Get real dataset metadata from LeRobot dataset
-        logger.info("📋 Loading LeRobot dataset metadata...")
+        logger.info("Loading LeRobot dataset metadata...")
         from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
         
         # Load the actual LeRobot dataset to get proper metadata
         lerobot_dataset = LeRobotDataset(config.dataset_name)
         dataset_metadata = lerobot_dataset.meta
         
-        logger.info(f"✅ Dataset metadata loaded: {len(dataset_metadata.features)} features")
+        logger.info(f"Dataset metadata loaded: {len(dataset_metadata.features)} features")
         logger.info(f"   Features: {list(dataset_metadata.features.keys())}")
         
         self.policy_manager = PolicyManager(config, dataset_metadata)
@@ -99,20 +99,20 @@ class CUPID:
         
         # Check if exact baseline already exists
         if baseline_path.exists() and not self.config.force_retrain:
-            logger.info(f"✅ Loading existing baseline from {baseline_path}")
-            logger.info(f"   📊 Dataset: {num_trajectories} trajectories, {num_steps} steps")
+            logger.info(f"Loading existing baseline from {baseline_path}")
+            logger.info(f"   Dataset: {num_trajectories} trajectories, {num_steps} steps")
             return self.policy_manager.load_policy(baseline_path)
         
         # Check for any baseline with different dataset size
         existing_baselines = list(Path(self.config.checkpoint_dir).glob("baseline_policy_T*_S*.pth"))
         if existing_baselines and not self.config.force_retrain:
-            logger.warning(f"⚠️  Found existing baseline(s) with different dataset sizes:")
+            logger.warning(f"Found existing baseline(s) with different dataset sizes:")
             for existing in existing_baselines:
                 logger.warning(f"   - {existing.name}")
             logger.warning(f"   Current dataset: {num_trajectories} trajectories, {num_steps} steps")
             logger.warning(f"   Use --force-retrain to create new baseline for current dataset")
         
-        logger.info(f"🚀 Training new baseline policy with {num_steps} total steps from {num_trajectories} trajectories.")
+        logger.info(f"Training new baseline policy with {num_steps} total steps from {num_trajectories} trajectories.")
         
         # Create policy for training
         policy = self.policy_manager.create_policy()
@@ -138,7 +138,7 @@ class CUPID:
         baseline_path.parent.mkdir(parents=True, exist_ok=True)
         self.policy_manager.save_policy(trained_policy, baseline_path)
         
-        logger.info(f"✅ Baseline policy training completed and saved to {baseline_name}")
+        logger.info(f"Baseline policy training completed and saved to {baseline_name}")
         return trained_policy, loss_history
     
     def compute_influence_scores(self, policy: torch.nn.Module) -> np.ndarray:
@@ -179,7 +179,16 @@ class CUPID:
             result = self.task_evaluator._run_episode(
                 policy, initial_state, max_steps=300
             )
-            rollouts[i] = result
+            
+            # FIXED: Structure rollout data correctly for influence computation
+            # The influence computation expects rollouts to have 'trajectory' and 'reward' keys
+            rollout_data = {
+                'trajectory': result.get('trajectory', []),
+                'reward': result.get('total_reward', 0.0),  # Use total episode reward
+                'success': result.get('success', False),
+                'episode_length': result.get('episode_length', 0)
+            }
+            rollouts[i] = rollout_data
         
         logger.info(f"Collected {len(rollouts)} rollouts")
         
@@ -230,9 +239,9 @@ class CUPID:
         curated_steps = len(curated_dataset)
         selection_ratio = selected_trajectories / total_trajectories
         
-        logger.info(f"🚀 Training NEW curated policy from scratch with {selected_trajectories} trajectories ({curated_steps} steps)...")
-        logger.info(f"   📊 Selection: {selected_trajectories}/{total_trajectories} trajectories ({selection_ratio:.1%})")
-        logger.info(f"   🎯 CUPID Method: Training fresh policy on curated data (standard CUPID approach)")
+        logger.info(f"Training NEW curated policy from scratch with {selected_trajectories} trajectories ({curated_steps} steps)...")
+        logger.info(f"   Selection: {selected_trajectories}/{total_trajectories} trajectories ({selection_ratio:.1%})")
+        logger.info(f"   CUPID Method: Training fresh policy on curated data (standard CUPID approach)")
         
         # Create policy for training
         policy = self.policy_manager.create_policy()
@@ -262,7 +271,7 @@ class CUPID:
         # Save curated policy
         self.policy_manager.save_policy(trained_policy, checkpoint_path)
         
-        logger.info(f"✅ Curated policy training completed and saved to {curated_name}")
+        logger.info(f"Curated policy training completed and saved to {curated_name}")
         return trained_policy, loss_history
     
     def run_full_pipeline(self) -> torch.nn.Module:

@@ -54,7 +54,7 @@ def setup_error_handling():
     """Setup comprehensive error handling for the workflow."""
     def handle_exception(exc_type, exc_value, exc_traceback):
         if issubclass(exc_type, KeyboardInterrupt):
-            logger.info("⚠️  Workflow interrupted by user")
+            logger.info("Workflow interrupted by user")
             sys.__excepthook__(exc_type, exc_value, exc_traceback)
             return
         
@@ -66,21 +66,21 @@ def setup_error_handling():
 def validate_environment():
     """Validate that the environment is properly set up."""
     try:
-        logger.info(f"✅ PyTorch version: {torch.__version__}")
+        logger.info(f"PyTorch version: {torch.__version__}")
         
         if torch.cuda.is_available():
-            logger.info(f"✅ CUDA available: {torch.cuda.get_device_name(0)}")
+            logger.info(f"CUDA available: {torch.cuda.get_device_name(0)}")
         else:
-            logger.info("ℹ️  CUDA not available, using CPU")
+            logger.info("CUDA not available, using CPU")
             
         # Check if we can import all required components
         from src.cupid.cupid import CUPID
         from src.cupid.config import Config
-        logger.info("✅ All CUPID components imported successfully")
+        logger.info("All CUPID components imported successfully")
         
         return True
     except Exception as e:
-        logger.error(f"❌ Environment validation failed: {e}")
+        logger.error(f"Environment validation failed: {e}")
         return False
 
 
@@ -101,10 +101,10 @@ def main(render=False, max_demonstrations=None, config_name="quick_demo", select
     
     # Validate environment
     if not validate_environment():
-        logger.error("❌ Environment validation failed - exiting")
+        logger.error("Environment validation failed - exiting")
         return 1
     
-    logger.info("🤖 CUPID: Curating Data your Robot Loves with Influence Functions")
+    logger.info("CUPID: Curating Data your Robot Loves with Influence Functions")
     logger.info("=" * 60)
     
     if render:
@@ -113,7 +113,7 @@ def main(render=False, max_demonstrations=None, config_name="quick_demo", select
     
     try:
         # Initialize CUPID with flexible configuration
-        logger.info(f"📋 Loading configuration: {config_name}")
+        logger.info(f"Loading configuration: {config_name}")
         if config_name == "smoke_test":
             config = Config.smoke_test(max_demonstrations=max_demonstrations or 20)
         elif config_name == "micro_test":
@@ -138,7 +138,7 @@ def main(render=False, max_demonstrations=None, config_name="quick_demo", select
         if lerobot_path:
             config.lerobot_path = lerobot_path
         
-        logger.info(f"✅ Configuration loaded: {config.dataset_name}")
+        logger.info(f"Configuration loaded: {config.dataset_name}")
         logger.info(f"   Device: {config.device}")
         logger.info(f"   Environment: {config.environment_type}")
         logger.info(f"   Max demonstrations: {config.max_demonstrations or 'all available'}")
@@ -148,40 +148,40 @@ def main(render=False, max_demonstrations=None, config_name="quick_demo", select
         # Initialize CUPID without rendering (rendering only for final demonstrations)
         cupid = CUPID(config, render_mode=None)
         
-        logger.info(f"📊 Dataset: {config.dataset_name}")
-        logger.info(f"🎯 Total demonstrations available: {len(cupid.dataset)}")
-        logger.info(f"🎯 Selection ratio: {config.influence.selection_ratio*100:.0f}%")
-        logger.info(f"🏋️ Training steps: {config.training.num_steps:,}")
+        logger.info(f"Dataset: {config.dataset_name}")
+        logger.info(f"Total demonstrations available: {len(cupid.dataset)}")
+        logger.info(f"Selection ratio: {config.influence.selection_ratio*100:.0f}%")
+        logger.info(f"Training steps: {config.training.num_steps:,}")
         
     except Exception as e:
-        logger.error(f"❌ Failed to initialize CUPID: {e}")
+        logger.error(f"Failed to initialize CUPID: {e}")
         return 1
     
     try:
         # Step 1: Train baseline policy (only if needed)
-        logger.info("📈 Step 1: Training baseline policy...")
+        logger.info("Step 1: Training baseline policy...")
         baseline_result = cupid.train_baseline()
         
         # Handle both cases: loaded existing policy or newly trained policy with loss history
         if isinstance(baseline_result, tuple):
             baseline_policy, baseline_loss_history = baseline_result
-            logger.info("✅ Baseline policy trained and saved (with loss history)")
+            logger.info("Baseline policy trained and saved (with loss history)")
         else:
             baseline_policy = baseline_result
             baseline_loss_history = None  # No loss history for loaded policy
-            logger.info("✅ Baseline policy loaded from checkpoint")
+            logger.info("Baseline policy loaded from checkpoint")
         
     except Exception as e:
         import traceback
-        logger.error(f"❌ Failed to train baseline policy: {e}")
+        logger.error(f"Failed to train baseline policy: {e}")
         logger.error(f"Full traceback:\n{traceback.format_exc()}")
         return 1
     
     try:
         # Step 2: Compute influence scores for all demonstrations
-        logger.info("🧠 Step 2: Computing influence scores...")
+        logger.info("Step 2: Computing influence scores...")
         influence_scores = cupid.compute_influence_scores(baseline_policy)
-        logger.info(f"✅ Computed influence scores for {len(influence_scores)} demonstrations")
+        logger.info(f"Computed influence scores for {len(influence_scores)} demonstrations")
         
         # Show influence statistics
         influence_stats = cupid.get_influence_statistics(influence_scores)
@@ -195,18 +195,18 @@ def main(render=False, max_demonstrations=None, config_name="quick_demo", select
         logger.info(f"   Bottom 5 influence scores: {influence_scores[sorted_indices[-5:]]}")
         
     except Exception as e:
-        logger.error(f"❌ Failed to compute influence scores: {e}")
+        logger.error(f"Failed to compute influence scores: {e}")
         return 1
     
     try:
         # Step 3: Select high-impact demonstrations using configured ratio
-        logger.info("🎯 Step 3: Selecting high-impact demonstrations...")
+        logger.info("Step 3: Selecting high-impact demonstrations...")
         selected_indices = cupid.select_demonstrations(influence_scores)
         selection_ratio = len(selected_indices) / len(cupid.dataset)
-        logger.info(f"✅ Selected {len(selected_indices)} demonstrations ({selection_ratio*100:.1f}%)")
+        logger.info(f"Selected {len(selected_indices)} demonstrations ({selection_ratio*100:.1f}%)")
         
     except Exception as e:
-        logger.error(f"❌ Failed to select demonstrations: {e}")
+        logger.error(f"Failed to select demonstrations: {e}")
         return 1
     
     try:
@@ -215,28 +215,28 @@ def main(render=False, max_demonstrations=None, config_name="quick_demo", select
         
         curated_policy, curated_loss_history = cupid.train_curated_policy(selected_indices)
         
-        logger.info(f"✅ Curated policy trained with {len(selected_indices)} demonstrations")
+        logger.info(f"Curated policy trained with {len(selected_indices)} demonstrations")
         
         # Analyze curated training progress
         if curated_loss_history and len(curated_loss_history) > 100:
             initial_loss = np.mean(curated_loss_history[:50])
             final_loss = np.mean(curated_loss_history[-50:])
             improvement = ((initial_loss - final_loss) / initial_loss) * 100
-            logger.info(f"   📈 Curated training progress: {initial_loss:.4f} → {final_loss:.4f} ({improvement:+.1f}% improvement)")
+            logger.info(f"   Curated training progress: {initial_loss:.4f} → {final_loss:.4f} ({improvement:+.1f}% improvement)")
             
             if improvement < 5:
-                logger.warning("⚠️ Limited training improvement - may need more steps or different hyperparameters")
+                logger.warning("Limited training improvement - may need more steps or different hyperparameters")
         
     except Exception as e:
-        logger.error(f"❌ Failed to train curated policy: {e}")
+        logger.error(f"Failed to train curated policy: {e}")
         return 1
     
     try:
         # Step 5: Task-based evaluation (the important part!)
-        logger.info("🎯 Step 5: Task-based Performance Evaluation")
+        logger.info("Step 5: Task-based Performance Evaluation")
         logger.info("-" * 40)
         
-        logger.info("   📊 Evaluating on actual task performance (success rate, rewards)...")
+        logger.info("   Evaluating on actual task performance (success rate, rewards)...")
         
         # Compare policies (uses num_episodes from config by default)
         comparison_results = cupid.compare_policies(
@@ -270,7 +270,7 @@ def main(render=False, max_demonstrations=None, config_name="quick_demo", select
         
         # Generate videos only if explicitly requested
         if generate_videos:
-            logger.info("   🎬 Generating video comparisons...")
+            logger.info("   Generating video comparisons...")
             video_output_dir = Path("outputs") / "videos"
             video_output_dir.mkdir(parents=True, exist_ok=True)
             
@@ -285,7 +285,7 @@ def main(render=False, max_demonstrations=None, config_name="quick_demo", select
             
             # Generate videos for both policies
             video_count = 3 if config_name == "smoke_test" else 5
-            logger.info(f"      📹 Generating {video_count} videos for each policy...")
+            logger.info(f"      Generating {video_count} videos for each policy...")
             
             baseline_videos = video_evaluator.generate_policy_videos(
                 baseline_policy, "Baseline_Policy", flat_dataset, 
@@ -299,21 +299,21 @@ def main(render=False, max_demonstrations=None, config_name="quick_demo", select
             
             all_videos = baseline_videos + curated_videos
             if all_videos:
-                logger.info(f"✅ Generated {len(all_videos)} video files:")
+                logger.info(f"Generated {len(all_videos)} video files:")
                 for video_path in all_videos:
-                    logger.info(f"   📹 {video_path}")
+                    logger.info(f"   {video_path}")
             else:
-                logger.info("   ℹ️ Video generation skipped (requires additional dependencies)")
+                logger.info("   Video generation skipped (requires additional dependencies)")
         else:
-            logger.info("   ℹ️ Video generation skipped (use --generate-videos to enable)")
+            logger.info("   Video generation skipped (use --generate-videos to enable)")
         
     except Exception as e:
-        logger.error(f"❌ Failed to evaluate policies: {e}")
+        logger.error(f"Failed to evaluate policies: {e}")
         return 1
     
     try:
         # Step 6: Create visualization and print final report
-        logger.info("📊 Step 6: Final Report & Visualization")
+        logger.info("Step 6: Final Report & Visualization")
         logger.info("=" * 60)
         
         # Create visualization
@@ -328,16 +328,16 @@ def main(render=False, max_demonstrations=None, config_name="quick_demo", select
             config=asdict(config),
             output_path=str(output_path)
         )
-        logger.info(f"✅ Saved visualization to {output_path}")
+        logger.info(f"Saved visualization to {output_path}")
         
         # Print final report
         _print_final_report(comparison_results, len(selected_indices), len(cupid.dataset))
 
     except Exception as e:
-        logger.error(f"❌ Failed to generate report: {e}")
+        logger.error(f"Failed to generate report: {e}")
         return 1
     
-    logger.info("✅ CUPID workflow completed successfully!")
+    logger.info("CUPID workflow completed successfully!")
     return 0
 
 

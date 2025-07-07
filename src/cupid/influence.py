@@ -246,16 +246,9 @@ class TrajectoryDataset(Dataset):
             'action': action,  # Keep as list
         }
         if self.is_rollout:
-            # For rollouts, use the total episode reward if available, 
-            # otherwise sum up step rewards, or use first step reward as fallback
-            if 'total_reward' in trajectory[0]:
-                item['reward'] = trajectory[0]['total_reward']
-            elif len(trajectory) > 1 and all('reward' in step for step in trajectory):
-                # Sum step rewards to get episode reward
-                item['reward'] = sum(step['reward'] for step in trajectory)
-            else:
-                # Fallback to single step reward
-                item['reward'] = trajectory[0].get('reward', 0.0)
+            # For rollouts, expect reward to be passed separately from trajectory
+            # The trajectory is just the sequence of steps, reward is the total episode reward
+            item['reward'] = 0.0  # Default fallback
         return item
 
 
@@ -439,10 +432,13 @@ class InfluenceComputer:
         
         # Convert rollouts to trajectory format for dataset
         rollout_trajectories = []
+        rollout_rewards = []
         for rollout in sampled_rollouts:
             trajectory = rollout.get('trajectory', [])
+            reward = rollout.get('reward', 0.0)
             if trajectory:
                 rollout_trajectories.append(trajectory)
+                rollout_rewards.append(reward)
         
         if not rollout_trajectories:
             logger.warning("No valid trajectories found in rollouts")
@@ -462,10 +458,12 @@ class InfluenceComputer:
         total_grad = None
         total_weight = 0.0
 
-        for batch in tqdm(rollout_loader, desc="Computing performance gradient"):
+        for batch_idx, batch in enumerate(tqdm(rollout_loader, desc="Computing performance gradient")):
             obs = batch['obs']  # Already a list
             action = batch['action']  # Already a list  
-            reward = batch['reward']
+            
+            # Get reward from our extracted rollout_rewards list
+            reward = rollout_rewards[batch_idx]
             
             # Handle reward - it might be a tensor or already a float
             if hasattr(reward, 'item'):

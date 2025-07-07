@@ -431,13 +431,13 @@ class TaskEvaluator:
             try:
                 from .lerobot_integration import LeRobotTaskEvaluator
                 self.lerobot_evaluator = LeRobotTaskEvaluator(config, render_mode)
-                logger.info("✅ LeRobot environment integration enabled")
+                logger.info("LeRobot environment integration enabled")
             except ImportError as e:
                 logger.warning(f"LeRobot integration failed: {e}")
                 logger.info("Falling back to CUPID simulation environment")
                 self.environment_type = 'cupid'
         elif self.environment_type == 'cupid':
-            logger.info("✅ Using CUPID simulation environment")
+            logger.info("Using CUPID simulation environment")
         else:
             logger.warning(f"Unknown environment type '{self.environment_type}', using CUPID simulation")
             self.environment_type = 'cupid'
@@ -727,7 +727,7 @@ class TaskEvaluator:
         # Use LeRobot environment if configured and available
         if self.environment_type == 'lerobot' and self.lerobot_evaluator is not None:
             try:
-                logger.info(f"🎥 Using LeRobot native video generation for {policy_name}...")
+                logger.info(f"Using LeRobot native video generation for {policy_name}...")
                 video_paths = self.lerobot_evaluator.demonstrate_policy_rollouts(
                     policy, policy_name, dataset, num_rollouts, max_steps, output_dir
                 )
@@ -742,7 +742,7 @@ class TaskEvaluator:
             return []
         
         # Use simulation environment (default or fallback)
-        logger.info(f"🎥 Demonstrating {policy_name} rollouts...")
+        logger.info(f"Demonstrating {policy_name} rollouts...")
         
         policy.eval()
         
@@ -804,7 +804,7 @@ class TaskEvaluator:
         # Set window title and show controls
         simulator._show_controls = True
         
-        logger.info(f"      🎬 Interactive animated rollout...")
+        logger.info(f"      Interactive animated rollout...")
         logger.info(f"         Controls: SPACE=Start/Pause, R=Restart, N=Next rollout, Q=Quit demos")
         
         try:
@@ -1048,7 +1048,7 @@ class TaskEvaluator:
         # Use LeRobot environment if configured and available
         if self.environment_type == 'lerobot' and self.lerobot_evaluator is not None:
             try:
-                logger.info(f"🎥 Using LeRobot video generation for {policy_name}...")
+                logger.info(f"Using LeRobot video generation for {policy_name}...")
                 return self.lerobot_evaluator.demonstrate_policy_rollouts(
                     policy, policy_name, dataset, num_videos, max_steps, output_dir
                 )
@@ -1057,7 +1057,7 @@ class TaskEvaluator:
                 logger.info("🔄 Falling back to simulation video generation")
         
         # Use simulation environment for video generation
-        logger.info(f"🎬 Generating {num_videos} videos for {policy_name} using simulation...")
+        logger.info(f"Generating {num_videos} videos for {policy_name} using simulation...")
         
         Path(output_dir).mkdir(parents=True, exist_ok=True)
         policy.eval()
@@ -1081,7 +1081,7 @@ class TaskEvaluator:
                     # Save as MP4 video
                     imageio.mimsave(video_path, frames, fps=fps)
                     video_paths.append(video_path)
-                    logger.info(f"   📹 Saved: {video_path}")
+                    logger.info(f"   Saved: {video_path}")
                 else:
                     logger.warning(f"   ⚠️ No frames captured for video {video_idx+1}")
                     

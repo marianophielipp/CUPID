@@ -127,22 +127,22 @@ def print_checkpoint_summary(checkpoint_dir: str = "checkpoints") -> None:
             info = inspect_checkpoint(filepath)
             
             if 'error' in info:
-                logger.error(f"   ❌ {info['filename']} - Error: {info['error']}")
+                logger.error(f"   {info['filename']} - Error: {info['error']}")
                 continue
             
             # Format the display
             size_str = f"{info['file_size_mb']:.1f}MB"
             modified_str = info['modified'][:19].replace('T', ' ')  # Remove microseconds and T
             
-            logger.info(f"   📄 {info['filename']}")
-            logger.info(f"      📊 Dataset: {info.get('num_trajectories', '?')} trajectories, {info.get('num_steps', '?')} steps")
-            logger.info(f"      🏷️  Config: {info.get('config_name', 'unknown')}")
-            logger.info(f"      📅 Modified: {modified_str} ({size_str})")
+            logger.info(f"   {info['filename']}")
+            logger.info(f"      Dataset: {info.get('num_trajectories', '?')} trajectories, {info.get('num_steps', '?')} steps")
+            logger.info(f"      Config: {info.get('config_name', 'unknown')}")
+            logger.info(f"      Modified: {modified_str} ({size_str})")
             
             if info.get('policy_type') == 'curated':
                 ratio = info.get('selection_ratio', 0)
                 if isinstance(ratio, (int, float)) and ratio > 0:
-                    logger.info(f"      🎯 Selection: {ratio:.1%} of {info.get('total_available_trajectories', '?')} trajectories")
+                    logger.info(f"      Selection: {ratio:.1%} of {info.get('total_available_trajectories', '?')} trajectories")
 
 
 def cleanup_old_checkpoints(checkpoint_dir: str = "checkpoints", keep_latest: int = 3) -> None:
@@ -163,15 +163,15 @@ def cleanup_old_checkpoints(checkpoint_dir: str = "checkpoints", keep_latest: in
             for filepath in files_to_remove:
                 try:
                     filepath.unlink()
-                    logger.info(f"🗑️  Removed old checkpoint: {filepath.name}")
+                    logger.info(f"Removed old checkpoint: {filepath.name}")
                     removed_count += 1
                 except Exception as e:
-                    logger.error(f"❌ Failed to remove {filepath.name}: {e}")
+                    logger.error(f"Failed to remove {filepath.name}: {e}")
     
     if removed_count > 0:
-        logger.info(f"✅ Cleaned up {removed_count} old checkpoint(s)")
+        logger.info(f"Cleaned up {removed_count} old checkpoint(s)")
     else:
-        logger.info("✅ No cleanup needed - all checkpoints are recent")
+        logger.info("No cleanup needed - all checkpoints are recent")
 
 
 def find_matching_baseline(checkpoint_dir: str, num_trajectories: int, num_steps: int) -> Optional[Path]:

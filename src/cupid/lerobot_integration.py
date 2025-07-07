@@ -65,7 +65,7 @@ class LeRobotEnvironmentWrapper:
                 visualization_height=512
             )
             
-            logger.info("✅ LeRobot PushT environment initialized successfully")
+            logger.info("LeRobot PushT environment initialized successfully")
             logger.info(f"   Observation space: {self.env.observation_space}")
             logger.info(f"   Action space: {self.env.action_space}")
             
@@ -450,7 +450,7 @@ class LeRobotTaskEvaluator:
         os.makedirs(output_dir, exist_ok=True)
         video_paths = []
         
-        logger.info(f"🎬 Generating {num_rollouts} LeRobot demonstration videos for {policy_name}...")
+        logger.info(f"Generating {num_rollouts} LeRobot demonstration videos for {policy_name}...")
         
         for rollout in range(num_rollouts):
             # Initialize environment wrapper for video recording
@@ -541,14 +541,14 @@ class LeRobotTaskEvaluator:
                     
                     success_msg = "Success!" if step_result.get('success', False) else "Failure!"
                     total_reward = sum(rewards)
-                    logger.info(f"✅ Rollout {rollout+1}: {success_msg} (Steps: {step}, Reward: {total_reward:.3f})")
-                    logger.info(f"   📹 Video saved: {video_path}")
+                    logger.info(f"Rollout {rollout+1}: {success_msg} (Steps: {step}, Reward: {total_reward:.3f})")
+                    logger.info(f"   Video saved: {video_path}")
                 
             except Exception as e:
-                logger.error(f"❌ Error generating LeRobot rollout {rollout+1}: {e}")
+                logger.error(f"Error generating LeRobot rollout {rollout+1}: {e}")
                 continue
             finally:
                 env_wrapper.close()
         
-        logger.info(f"🎬 Generated {len(video_paths)}/{num_rollouts} LeRobot demonstration videos")
+        logger.info(f"Generated {len(video_paths)}/{num_rollouts} LeRobot demonstration videos")
         return video_paths 

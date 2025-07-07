@@ -1,4 +1,4 @@
-# 🤖 CUPID: Curating Performance-Influencing Demonstrations with Influence Functions
+# CUPID: Curating Performance-Influencing Demonstrations with Influence Functions
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-orange.svg)](https://pytorch.org/)
@@ -7,28 +7,28 @@
 
 A production-ready implementation of **CUPID** (Curating Performance-Influencing Demonstrations using Influence Functions) for robot imitation learning. This system identifies and selects the most valuable demonstrations from large datasets, achieving state-of-the-art performance with ~33% of the original data.
 
-## 🌟 Key Features
+## Key Features
 
-- **🎯 Intelligent Data Curation**: Uses influence functions to identify high-impact demonstrations
-- **🚀 Performance**: Achieves comparable results with 25-33% of original training data
-- **🔧 Production Ready**: Cross-platform support (Linux, macOS, Windows) with CUDA/MPS/CPU
-- **🎮 Interactive Visualization**: Real-time policy demonstrations with pygame rendering
-- **📊 Comprehensive Evaluation**: Task-based metrics beyond training loss
-- **🔬 Research Validated**: Based on peer-reviewed CUPID methodology
+- **Intelligent Data Curation**: Uses influence functions to identify high-impact demonstrations
+- **Performance**: Achieves comparable results with 25-33% of original training data
+- **Production Ready**: Cross-platform support (Linux, macOS, Windows) with CUDA/MPS/CPU
+- **Interactive Visualization**: Real-time policy demonstrations with pygame rendering
+- **Comprehensive Evaluation**: Task-based metrics beyond training loss
+- **Research Validated**: Based on peer-reviewed CUPID methodology
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 CUPID Pipeline:
-1. 📊 Load Dataset (LeRobot/HuggingFace)
-2. 🏋️ Train Baseline Policy (Diffusion Policy)
-3. 🧠 Compute Influence Scores (Trajectory-based)
-4. 🎯 Select High-Impact Trajectories
-5. 🚀 Train Curated Policy (Selected Trajectories)
-6. 📈 Evaluate & Compare Performance
+1. Load Dataset (LeRobot/HuggingFace)
+2. Train Baseline Policy (Diffusion Policy)
+3. Compute Influence Scores (Trajectory-based)
+4. Select High-Impact Trajectories
+5. Train Curated Policy (Selected Trajectories)
+6. Evaluate & Compare Performance
 ```
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Installation
 
@@ -44,7 +44,7 @@ uv sync
 pip install -e .
 ```
 
-### 📓 Interactive Jupyter Notebook (Recommended)
+### Interactive Jupyter Notebook (Recommended)
 
 **Start with the interactive notebook for a guided walkthrough:**
 
@@ -97,7 +97,7 @@ uv run python example_workflow.py --config quick_demo
 uv run python example_workflow.py --config default --environment lerobot
 ```
 
-## 🎛️ Configuration
+## Configuration
 
 ### Pre-built Configurations
 
@@ -124,10 +124,10 @@ Based on comprehensive testing across different scales:
 
 | Configuration | Demonstrations | Training Steps | Time | Influence Quality | Use Case |
 |---------------|---------------|----------------|------|-------------------|----------|
-| `micro_test` | 10 | 1,000 | ~5 min | ⚠️ Limited differentiation | Debug only |
-| `smoke_test` | 25 | 5,000 | ~30 min | ✅ Good (-549 to +46 range) | Quick validation |
-| `for_demos` | 50+ | 75,000 | ~2-3 hrs | ✅ Excellent (100%+ improvements) | Demonstrations |
-| `quick_demo` | 1000 | Optimized | Several hrs | ✅ Production quality | Full evaluation |
+| `micro_test` | 10 | 1,000 | ~5 min | Limited differentiation | Debug only |
+| `smoke_test` | 25 | 5,000 | ~30 min | Good (-549 to +46 range) | Quick validation |
+| `for_demos` | 50+ | 75,000 | ~2-3 hrs | Excellent (100%+ improvements) | Demonstrations |
+| `quick_demo` | 1000 | Optimized | Several hrs | Production quality | Full evaluation |
 
 **Note**: `micro_test` shows limited influence differentiation (mostly zero scores) due to insufficient data. Use `smoke_test` or larger for meaningful results.
 
@@ -146,7 +146,7 @@ config.device = "mps"      # Apple Silicon GPU
 config.device = "cpu"      # CPU fallback
 ```
 
-## 🔧 Advanced Usage
+## Advanced Usage
 
 ### Custom Training Configuration
 
@@ -193,7 +193,7 @@ evaluator.demonstrate_policy_rollouts(
 )
 ```
 
-## 📊 Performance Metrics
+## Performance Metrics
 
 CUPID tracks comprehensive task-based metrics:
 
@@ -231,7 +231,7 @@ Curated Policy (15 demonstrations, 30% of data):
   • Data Efficiency: 70% fewer training steps
 ```
 
-## 🎮 Interactive Features
+## Interactive Features
 
 ### Visual Demonstrations
 
@@ -249,7 +249,7 @@ Real-time policy rollouts with interactive controls:
 - **Contact Physics**: Visual feedback for pusher-object interaction
 - **Success Indicators**: Real-time task completion status
 
-## 🔬 Technical Details
+## Technical Details
 
 ### Influence Function Implementation
 
@@ -276,7 +276,7 @@ Where:
 - **Sinusoidal Embeddings**: Time-aware diffusion process
 - **DDPM Sampling**: High-quality action generation
 
-## 🛠️ Development
+## Development
 
 ### Project Structure
 
@@ -294,7 +294,7 @@ cupid/
 │   ├── lerobot_integration.py   # LeRobot environment integration
 │   ├── visualization.py         # Result visualization
 │   └── checkpoint_utils.py      # Checkpoint management
-├── cupid_pipeline_demo.ipynb    # 📓 Interactive demonstration notebook
+├── cupid_pipeline_demo.ipynb    # Interactive demonstration notebook
 ├── example_workflow.py          # Complete CLI example
 ├── pyproject.toml               # Project configuration
 └── README.md                    # This file
@@ -333,7 +333,7 @@ uv run python example_workflow.py --config for_demos --max-demonstrations 50 --e
 uv run pytest tests/
 ```
 
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
 2. Create feature branch: `git checkout -b feature/amazing-feature`
@@ -348,7 +348,7 @@ uv run pytest tests/
 - Comprehensive docstrings for all classes/functions
 - Error handling for cross-platform compatibility
 
-## 📚 Citation
+## Citation
 
 If you use CUPID in your research, please cite:
 
@@ -361,34 +361,34 @@ If you use CUPID in your research, please cite:
 }
 ```
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🆘 Support
+## Support
 
 - **Issues**: [GitHub Issues](https://github.com/your-org/cupid/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/your-org/cupid/discussions)
 - **Documentation**: [Full Documentation](https://cupid.readthedocs.io)
 
-## 🔄 Changelog
+## Changelog
 
 ### v0.2.0 (Current)
-- ✅ **New**: Interactive Jupyter notebook with step-by-step pipeline walkthrough
-- ✅ **New**: `micro_test` configuration for rapid debugging (10 demonstrations, 100 steps)
-- ✅ **Enhanced**: Improved configuration system with smoke_test, quick_demo presets
-- ✅ **Enhanced**: Better checkpoint management and policy reuse
-- ✅ **Enhanced**: Comprehensive visualization with multi-panel plots
-- ✅ **Fixed**: LeRobot integration stability and error handling
-- ✅ **Fixed**: Cross-platform device detection and fallbacks
+- **New**: Interactive Jupyter notebook with step-by-step pipeline walkthrough
+- **New**: `micro_test` configuration for rapid debugging (10 demonstrations, 100 steps)
+- **Enhanced**: Improved configuration system with smoke_test, quick_demo presets
+- **Enhanced**: Better checkpoint management and policy reuse
+- **Enhanced**: Comprehensive visualization with multi-panel plots
+- **Fixed**: LeRobot integration stability and error handling
+- **Fixed**: Cross-platform device detection and fallbacks
 
 ### v0.1.0
-- ✅ Initial release with full CUPID pipeline
-- ✅ Cross-platform support (Linux/macOS/Windows)
-- ✅ Device support (CPU/CUDA/MPS)
-- ✅ Interactive visualization with pygame
-- ✅ Production-ready error handling
+- Initial release with full CUPID pipeline
+- Cross-platform support (Linux/macOS/Windows)
+- Device support (CPU/CUDA/MPS)
+- Interactive visualization with pygame
+- Production-ready error handling
 
 ---
 
-**Made with ❤️ for the robotics community**
+**Made with love for the robotics community**

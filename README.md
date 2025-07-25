@@ -5,13 +5,13 @@
 [![Cross-Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)]()
 [![Device Support](https://img.shields.io/badge/device-CPU%20%7C%20CUDA%20%7C%20MPS-green.svg)]()
 
-A production-ready implementation of **CUPID** (Curating Performance-Influencing Demonstrations using Influence Functions) for robot imitation learning. This system identifies and selects the most valuable demonstrations from large datasets, achieving state-of-the-art performance with ~33% of the original data.
+An implementation of **CUPID** (Curating Performance-Influencing Demonstrations using Influence Functions) for robot imitation learning. This system identifies and selects the most valuable demonstrations from large datasets, achieving state-of-the-art performance with ~33% of the original data.
 
 ## Key Features
 
 - **Intelligent Data Curation**: Uses influence functions to identify high-impact demonstrations
 - **Performance**: Achieves comparable results with 25-33% of original training data
-- **Production Ready**: Cross-platform support (Linux, macOS, Windows) with CUDA/MPS/CPU
+- **Reference Implementation**: Cross-platform support (Linux, macOS, Windows) with CUDA/MPS/CPU
 - **Interactive Visualization**: Real-time policy demonstrations with pygame rendering
 - **Comprehensive Evaluation**: Task-based metrics beyond training loss
 - **Research Validated**: Based on peer-reviewed CUPID methodology
@@ -363,7 +363,7 @@ If you use CUPID in your research, please cite:
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
 
 ## Support
 

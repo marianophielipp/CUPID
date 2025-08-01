@@ -353,13 +353,16 @@ uv run pytest tests/
 If you use CUPID in your research, please cite:
 
 ```bibtex
-@article{cupid2024,
-  title={CUPID: Curating Performance-Influencing Demonstrations using Influence Functions},
-  author={Your Name and Collaborators},
-  journal={Conference/Journal Name},
-  year={2024}
+@article{agia2025cupid,
+    title   = {CUPID: Curating Data your Robot Loves with Influence Functions},
+    author  = {Agia, Christopher and Sinha, Rohan and Yang, Jingyun and Antonova, Rika and Pavone, Marco and Nishimura, Haruki and Itkina, Masha and Bohg, Jeannette},
+    year    = {2025},
+    journal = {arXiv preprint arXiv:2506.19121}
 }
 ```
+
+**Paper**: [arXiv:2506.19121](https://arxiv.org/abs/2506.19121)  
+**Project Website**: [cupid-curation.github.io](https://cupid-curation.github.io/)
 
 ## License
 
